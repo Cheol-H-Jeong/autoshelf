@@ -171,6 +171,7 @@ Keyboard shortcuts:
 - `F5`: switch to Home and rerun the scan preview.
 - `Ctrl+Enter`: switch to Apply and start the apply workflow.
 - `Ctrl+Z`: switch to History and queue an undo review action.
+- Drag a proposed file onto another folder in Review to create a visible manual override before apply.
 
 Review quarantine workflow:
 

@@ -76,6 +76,7 @@ Desktop shortcuts in the GUI:
 - `F5` reruns the scan preview from Home.
 - `Ctrl+Enter` jumps to Apply and starts the current apply flow.
 - `Ctrl+Z` jumps to History and stages an undo review request.
+- Drag a proposed file onto another folder in the Review tree to reassign it before apply. The row turns into a manual override so operators can see it diverged from the planner's original destination.
 - Saving Settings applies theme and language changes to the live window immediately.
 
 Quarantine review in the GUI:
