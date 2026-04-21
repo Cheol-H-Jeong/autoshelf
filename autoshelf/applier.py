@@ -11,6 +11,7 @@ from pathlib import Path
 from loguru import logger
 
 from autoshelf.apply_state import (
+    CopyStage,
     RunPlanEntry,
     load_run_plan_entries,
     run_staging_dir,
@@ -101,6 +102,8 @@ def apply_plan(
                         entry.path,
                         status="running",
                         target_path=str(final_target.relative_to(root)),
+                        copy_stage="pending",
+                        staged_path="",
                     ) or entry
                     source = root / entry.path
                     if conflict_policy == "skip" and final_target.exists() and source.exists():
@@ -125,7 +128,7 @@ def apply_plan(
                                 final_target,
                             )
                         continue
-                    reconciled = _reconcile_completed_move(root, entry, final_target)
+                    reconciled = _recover_interrupted_move(root, plan_path, entry, final_target)
                     if reconciled is None and not source.exists():
                         update_run_entry(plan_path, entry.path, status="skipped")
                         session.add(
@@ -144,7 +147,14 @@ def apply_plan(
                                 "missing-source", sequence, total_entries, entry.path, final_target
                             )
                         continue
-                    final_target = reconciled or _move_file(source, final_target, staging_dir)
+                    final_target = reconciled or _move_file(
+                        root,
+                        plan_path,
+                        entry.path,
+                        source,
+                        final_target,
+                        staging_dir,
+                    )
                     _verify_move(
                         source,
                         final_target,
@@ -184,6 +194,8 @@ def apply_plan(
                         entry.path,
                         status="applied",
                         target_path=str(final_target.relative_to(root)),
+                        copy_stage="pending",
+                        staged_path="",
                     )
                     completed_entries += 1
                     write_run_state(
@@ -255,7 +267,14 @@ def _target_for_entry(root: Path, entry: RunPlanEntry, conflict_policy: str) -> 
     return resolve_assignment_target(root, entry.path, entry.primary_dir, conflict_policy)
 
 
-def _move_file(source: Path, target: Path, staging_dir: Path) -> Path:
+def _move_file(
+    root: Path,
+    plan_path: Path,
+    entry_path: str,
+    source: Path,
+    target: Path,
+    staging_dir: Path,
+) -> Path:
     try:
         source.replace(target)
         return target
@@ -263,7 +282,15 @@ def _move_file(source: Path, target: Path, staging_dir: Path) -> Path:
         if exc.errno != errno.EXDEV:
             raise
     staged_target = _stage_copy(source, target, staging_dir)
+    _record_copy_stage(
+        root,
+        plan_path,
+        entry_path,
+        copy_stage="staged",
+        staged_target=staged_target,
+    )
     staged_target.replace(target)
+    _record_copy_stage(root, plan_path, entry_path, copy_stage="target-written")
     source.unlink()
     return target
 
@@ -277,13 +304,42 @@ def _stage_copy(source: Path, target: Path, staging_dir: Path) -> Path:
     return staged_target
 
 
-def _reconcile_completed_move(root: Path, entry: RunPlanEntry, target: Path) -> Path | None:
+def _recover_interrupted_move(
+    root: Path,
+    plan_path: Path,
+    entry: RunPlanEntry,
+    target: Path,
+) -> Path | None:
     source = root / entry.path
+    staged_target = root / entry.staged_path if entry.staged_path else None
+    if _can_finalize_duplicate_source(source, target, entry.source_hash):
+        logger.info("resuming duplicated source cleanup for {}", entry.path)
+        source.unlink()
+        _clear_staged_artifact(staged_target)
+        update_run_entry(
+            plan_path,
+            entry.path,
+            target_path=str(target.relative_to(root)),
+            copy_stage="pending",
+            staged_path="",
+        )
+        return target
+    if staged_target is not None and staged_target.exists():
+        recovered = _recover_staged_target(root, plan_path, entry, source, target, staged_target)
+        if recovered is not None:
+            return recovered
     if source.exists() or not target.exists():
         return None
     if entry.source_hash and _hash_file(target) != entry.source_hash:
         return None
     logger.info("resuming completed move for {}", entry.path)
+    update_run_entry(
+        plan_path,
+        entry.path,
+        target_path=str(target.relative_to(root)),
+        copy_stage="pending",
+        staged_path="",
+    )
     return target
 
 
@@ -310,6 +366,72 @@ def _verify_move(source: Path, target: Path, source_hash: str, *, reconciled: bo
 def _cleanup_staging_dir(staging_dir: Path) -> None:
     if staging_dir.exists():
         shutil.rmtree(staging_dir)
+
+
+def _record_copy_stage(
+    root: Path,
+    plan_path: Path,
+    entry_path: str,
+    *,
+    copy_stage: CopyStage,
+    staged_target: Path | None = None,
+) -> None:
+    staged_path = ""
+    if staged_target is not None:
+        staged_path = str(staged_target.relative_to(root))
+    update_run_entry(
+        plan_path,
+        entry_path,
+        copy_stage=copy_stage,
+        staged_path=staged_path,
+    )
+
+
+def _can_finalize_duplicate_source(source: Path, target: Path, source_hash: str) -> bool:
+    if not (source.exists() and target.exists()):
+        return False
+    if source_hash:
+        return _hash_file(target) == source_hash
+    return _hash_file(source) == _hash_file(target)
+
+
+def _recover_staged_target(
+    root: Path,
+    plan_path: Path,
+    entry: RunPlanEntry,
+    source: Path,
+    target: Path,
+    staged_target: Path,
+) -> Path | None:
+    if entry.source_hash and _hash_file(staged_target) != entry.source_hash:
+        return None
+    logger.info("recovering staged copy for {}", entry.path)
+    if not target.exists():
+        staged_target.replace(target)
+        update_run_entry(
+            plan_path,
+            entry.path,
+            target_path=str(target.relative_to(root)),
+            copy_stage="target-written",
+            staged_path=str(staged_target.relative_to(root)),
+        )
+    if source.exists():
+        source.unlink()
+    _clear_staged_artifact(staged_target)
+    update_run_entry(
+        plan_path,
+        entry.path,
+        target_path=str(target.relative_to(root)),
+        copy_stage="pending",
+        staged_path="",
+    )
+    return target
+
+
+def _clear_staged_artifact(staged_target: Path | None) -> None:
+    if staged_target is None or not staged_target.exists():
+        return
+    staged_target.unlink()
 
 
 @dataclass(slots=True)

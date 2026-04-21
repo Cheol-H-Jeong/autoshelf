@@ -135,6 +135,126 @@ def test_apply_resume_reconciles_completed_move_before_shortcut(tmp_path):
     assert '"status": "completed"' in state_payload
 
 
+def test_apply_records_staged_copy_metadata_for_cross_device_runs(tmp_path, monkeypatch):
+    source = tmp_path / "draft.txt"
+    source.write_text("hello", encoding="utf-8")
+    original_replace = Path.replace
+
+    def raise_exdev(self: Path, target: Path):
+        if self == source:
+            raise OSError(errno.EXDEV, "cross-device")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", raise_exdev)
+    try:
+        result = apply_plan(
+            tmp_path, [_assignment("draft.txt", ["문서"])], {"문서": {}}, dry_run=False
+        )
+    finally:
+        monkeypatch.setattr(Path, "replace", original_replace)
+
+    plan = load_run_plan(tmp_path / ".autoshelf" / "runs" / f"{result.run_id}.plan.jsonl")
+    assert plan[0]["copy_stage"] == "pending"
+    assert plan[0]["staged_path"] == ""
+
+
+def test_apply_resume_recovers_staged_copy_after_interrupted_cross_device_move(
+    tmp_path, monkeypatch
+):
+    source = tmp_path / "draft.txt"
+    source.write_text("hello", encoding="utf-8")
+    original_replace = Path.replace
+    promoted = False
+
+    def flaky_replace(self: Path, target: Path):
+        nonlocal promoted
+        if self == source:
+            raise OSError(errno.EXDEV, "cross-device")
+        if self.suffix == ".part" and not promoted:
+            promoted = True
+            raise RuntimeError("simulated crash before promote")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", flaky_replace)
+    try:
+        try:
+            apply_plan(tmp_path, [_assignment("draft.txt", ["문서"])], {"문서": {}}, dry_run=False)
+        except RuntimeError as exc:
+            assert "simulated crash" in str(exc)
+    finally:
+        monkeypatch.setattr(Path, "replace", original_replace)
+
+    staged_files = list((tmp_path / ".autoshelf" / "staging").rglob("*.part"))
+    assert len(staged_files) == 1
+    assert source.exists()
+    assert not (tmp_path / "문서" / "draft.txt").exists()
+
+    run_id = staged_files[0].parent.name
+    resumed = apply_plan(
+        tmp_path,
+        [_assignment("draft.txt", ["문서"])],
+        {"문서": {}},
+        dry_run=False,
+        run_id=run_id,
+        resume=True,
+    )
+
+    assert resumed.resumed is True
+    assert not source.exists()
+    assert (tmp_path / "문서" / "draft.txt").exists()
+    assert not run_staging_dir(tmp_path, run_id).exists()
+
+
+def test_apply_resume_removes_duplicate_source_after_target_written_interrupt(
+    tmp_path, monkeypatch
+):
+    source = tmp_path / "draft.txt"
+    source.write_text("hello", encoding="utf-8")
+    original_replace = Path.replace
+    original_unlink = Path.unlink
+
+    def cross_device_replace(self: Path, target: Path):
+        if self == source:
+            raise OSError(errno.EXDEV, "cross-device")
+        return original_replace(self, target)
+
+    def fail_unlink(self: Path, *args, **kwargs):
+        if self == source:
+            raise RuntimeError("simulated crash after promote")
+        return original_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "replace", cross_device_replace)
+    monkeypatch.setattr(Path, "unlink", fail_unlink)
+    try:
+        try:
+            apply_plan(tmp_path, [_assignment("draft.txt", ["문서"])], {"문서": {}}, dry_run=False)
+        except RuntimeError as exc:
+            assert "simulated crash" in str(exc)
+    finally:
+        monkeypatch.setattr(Path, "replace", original_replace)
+        monkeypatch.setattr(Path, "unlink", original_unlink)
+
+    target = tmp_path / "문서" / "draft.txt"
+    assert source.exists()
+    assert target.exists()
+
+    run_id = next((tmp_path / ".autoshelf" / "runs").glob("*.plan.jsonl")).stem.replace(".plan", "")
+    resumed = apply_plan(
+        tmp_path,
+        [_assignment("draft.txt", ["문서"])],
+        {"문서": {}},
+        dry_run=False,
+        run_id=run_id,
+        resume=True,
+    )
+
+    assert resumed.resumed is True
+    assert not source.exists()
+    assert target.exists()
+    state_payload = run_state_path(tmp_path, run_id).read_text(encoding="utf-8")
+    assert '"status": "completed"' in state_payload
+
+
 def test_apply_skip_policy_leaves_existing_target(tmp_path):
     source = tmp_path / "draft.txt"
     source.write_text("hello", encoding="utf-8")

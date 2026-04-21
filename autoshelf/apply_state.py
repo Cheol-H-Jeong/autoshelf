@@ -12,6 +12,7 @@ from autoshelf.scanner import _hash_file
 
 RunEntryStatus = Literal["planned", "running", "applied", "skipped"]
 RunStatus = Literal["planned", "running", "interrupted", "completed"]
+CopyStage = Literal["pending", "staged", "target-written"]
 
 
 class RunPlanEntry(BaseModel):
@@ -26,6 +27,8 @@ class RunPlanEntry(BaseModel):
     status: RunEntryStatus = "planned"
     source_hash: str = ""
     target_path: str = ""
+    copy_stage: CopyStage = "pending"
+    staged_path: str = ""
 
 
 class RunState(BaseModel):
@@ -87,6 +90,8 @@ def update_run_entry(
     *,
     status: RunEntryStatus | None = None,
     target_path: str | None = None,
+    copy_stage: CopyStage | None = None,
+    staged_path: str | None = None,
 ) -> RunPlanEntry | None:
     entries = load_run_plan_entries(plan_path)
     updated: RunPlanEntry | None = None
@@ -97,6 +102,10 @@ def update_run_entry(
             entry.status = status
         if target_path is not None:
             entry.target_path = target_path
+        if copy_stage is not None:
+            entry.copy_stage = copy_stage
+        if staged_path is not None:
+            entry.staged_path = staged_path
         updated = entry
         break
     save_run_plan_entries(plan_path, entries)
