@@ -47,6 +47,13 @@ python -m autoshelf apply /srv/incoming --policy append-counter
 python -m autoshelf verify /srv/incoming
 ```
 
+Desktop shortcuts in the GUI:
+
+- `F5` reruns the scan preview from Home.
+- `Ctrl+Enter` jumps to Apply and starts the current apply flow.
+- `Ctrl+Z` jumps to History and stages an undo review request.
+- Saving Settings applies theme and language changes to the live window immediately.
+
 If an apply is interrupted, rerun the recorded operation instead of starting over:
 
 ```bash

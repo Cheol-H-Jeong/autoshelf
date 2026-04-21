@@ -1,4 +1,4 @@
-# autoshelf v1.0.9
+# autoshelf
 
 `autoshelf` scans a folder, extracts lightweight content context, drafts a reversible organization plan, applies moves plus shortcuts, and leaves behind `FOLDER_GUIDE.md`, `FILE_INDEX.md`, and a tamper-evident `manifest.jsonl`.
 
@@ -8,7 +8,7 @@
 - Offline deterministic planning for CI and first-run use.
 - Parser coverage for text, pdf, office, hwp, image, code, archive, and media files.
 - Two-phase apply with resumable run plans, interrupt-aware run state, staged cross-device moves, hash verification, and undo history.
-- PySide6 desktop GUI with saved light/dark theme support, rationale-rich review previews, and dedicated Home, Review, Apply, History, and Settings tabs.
+- PySide6 desktop GUI with saved light/dark theme support, runtime language/theme updates, rationale-rich review previews, and dedicated Home, Review, Apply, History, and Settings tabs.
 - Korean and English UI catalogs.
 
 Operator documentation lives in [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md).
@@ -121,7 +121,13 @@ mappings:
 - Review: current/proposed tree panes, colored move previews, assignment table, and folder rationale hints.
 - Apply: progress bar, token counter, log, cancel button.
 - History: run table with undo/open/show-manifest actions.
-- Settings: persisted model pickers, chunk slider, locale/theme controls, and saved configuration feedback.
+- Settings: persisted model pickers, chunk slider, locale/theme controls, and saved configuration feedback that applies immediately to the live window.
+
+Keyboard shortcuts:
+
+- `F5`: switch to Home and rerun the scan preview.
+- `Ctrl+Enter`: switch to Apply and start the apply workflow.
+- `Ctrl+Z`: switch to History and queue an undo review action.
 
 ## Packaging
 
