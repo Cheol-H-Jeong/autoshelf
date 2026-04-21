@@ -30,4 +30,11 @@ Example 3:
 - good also_relevant: []
 - why: do not overfit weak parent names; keep generic ingestion folders
   from polluting the final taxonomy
+
+Review heuristics:
+- if a second-level folder is just a workflow bucket like drafts or proposals,
+  prefer a stable business parent such as a client, team, or project when the
+  full tree shows repeated evidence for it
+- rewrite summaries as concise folder rationale, because they are shown in the
+  review UI and written into the manifest for auditability
 """.strip()

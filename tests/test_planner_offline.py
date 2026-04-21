@@ -196,6 +196,39 @@ def test_fake_llm_routes_finance_documents_by_context(tmp_path, monkeypatch):
 
     assert result.assignments[0].primary_dir == ["Finance", "Invoices"]
     assert result.assignments[0].also_relevant == [["Documents"]]
+    assert "Finance" in result.assignments[0].summary
+    assert "Documents" in result.assignments[0].summary
+
+
+def test_review_pass_prefers_stable_business_parent_over_workflow_folder(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    config = AppConfig()
+    mtime = datetime(2024, 5, 1).timestamp()
+
+    def make_file(name: str) -> FileInfo:
+        return FileInfo(
+            absolute_path=tmp_path / "clients" / "acme" / "proposals" / name,
+            relative_path=Path(f"clients/acme/proposals/{name}"),
+            parent_name="proposals",
+            filename=name,
+            stem=name.rsplit(".", 1)[0],
+            extension="txt",
+            size_bytes=3,
+            mtime=mtime,
+            ctime=mtime,
+            file_hash=name,
+        )
+
+    files = [make_file("renewal.txt"), make_file("pricing.txt")]
+    contexts = {
+        files[0].absolute_path: ParsedContext("Renewal proposal", "client renewal outline", {}),
+        files[1].absolute_path: ParsedContext("Pricing proposal", "client pricing terms", {}),
+    }
+
+    result = PlannerPipeline(config).plan(files, contexts)
+
+    assert {tuple(item.primary_dir) for item in result.assignments} == {("Documents", "acme")}
+    assert "parent context 'acme'" in result.assignments[0].summary
 
 
 def test_fake_llm_routes_screenshots_into_named_image_bucket(tmp_path, monkeypatch):

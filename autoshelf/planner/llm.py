@@ -16,6 +16,11 @@ from autoshelf.planner.naming import normalize_folder_name
 from autoshelf.planner.prompts import FEW_SHOT_PROMPT, SYSTEM_PROMPT
 from autoshelf.planner.rate_limit import RateLimiter
 from autoshelf.planner.reliability import CircuitBreaker, RetryPolicy
+from autoshelf.planner.review import (
+    build_assignment_rationale,
+    build_tree_from_assignments,
+    review_assignments,
+)
 from autoshelf.rules import PlanningRules, render_rules_prompt
 
 
@@ -31,6 +36,13 @@ class PlannerLLM(Protocol):
         final_tree: dict[str, Any],
         briefs: list[FileBrief],
     ) -> list[PlannerAssignment]: ...
+
+    def review(
+        self,
+        final_tree: dict[str, Any],
+        briefs: list[FileBrief],
+        assignments: list[PlannerAssignment],
+    ) -> PlannerResponse: ...
 
     @property
     def usage(self) -> PlannerUsage: ...
@@ -117,11 +129,33 @@ class FakeLLM:
                     path=brief.path,
                     primary_dir=primary,
                     also_relevant=also[:2],
-                    summary=brief.head_text[:80] or brief.title or brief.filename,
+                    summary=build_assignment_rationale(
+                        brief,
+                        primary,
+                        also[:2],
+                        corpus_english=corpus_english,
+                    ),
                     confidence=0.92,
                 )
             )
         return assignments
+
+    def review(
+        self,
+        final_tree: dict[str, Any],
+        briefs: list[FileBrief],
+        assignments: list[PlannerAssignment],
+    ) -> PlannerResponse:
+        reviewed = review_assignments(
+            assignments,
+            briefs,
+            corpus_english=_corpus_mostly_english(briefs),
+        )
+        return PlannerResponse(
+            tree=build_tree_from_assignments(reviewed) or _deep_copy_tree(final_tree),
+            assignments=reviewed,
+            unsure_paths=[],
+        )
 
     @property
     def usage(self) -> PlannerUsage:
@@ -260,6 +294,29 @@ class AnthropicPlannerLLM:
         )
         return response.assignments
 
+    def review(
+        self,
+        final_tree: dict[str, Any],
+        briefs: list[FileBrief],
+        assignments: list[PlannerAssignment],
+    ) -> PlannerResponse:
+        prompt = (
+            "Review the full tree and current assignments. Merge or split weak folders when the "
+            "full corpus supports it, and rewrite every summary as concise folder rationale."
+        )
+
+        def fallback() -> PlannerResponse:
+            return self._fallback.review(final_tree, briefs, assignments)
+
+        return self._request(
+            model=self._config.llm.review_model,
+            draft_tree=final_tree,
+            briefs=briefs,
+            prompt=prompt,
+            fallback=fallback,
+            assignments=assignments,
+        )
+
     @property
     def usage(self) -> PlannerUsage:
         return self._usage
@@ -270,7 +327,11 @@ class AnthropicPlannerLLM:
         return count_tokens(briefs, counter=self._client)
 
     def _messages_payload(
-        self, briefs: list[FileBrief], tree: dict[str, Any], model: str
+        self,
+        briefs: list[FileBrief],
+        tree: dict[str, Any],
+        model: str,
+        assignments: list[PlannerAssignment] | None = None,
     ) -> dict[str, Any]:
         guide_text = self._existing_folder_guide()
         system_blocks: list[dict[str, Any]] = [{"type": "text", "text": SYSTEM_PROMPT}]
@@ -290,6 +351,14 @@ class AnthropicPlannerLLM:
         if rules_text:
             system_blocks.append({"type": "text", "text": rules_text})
         brief_payload = [brief.model_dump() for brief in briefs]
+        assignment_payload = (
+            [assignment.model_dump() for assignment in assignments]
+            if assignments is not None
+            else None
+        )
+        request_text = f"tree={tree}\nbriefs={brief_payload}"
+        if assignment_payload is not None:
+            request_text += f"\ncurrent_assignments={assignment_payload}"
         return {
             "model": model,
             "max_tokens": 4096,
@@ -308,7 +377,7 @@ class AnthropicPlannerLLM:
                     "content": [
                         {
                             "type": "text",
-                            "text": f"tree={tree}\nbriefs={brief_payload}",
+                            "text": request_text,
                         }
                     ],
                 }
@@ -322,8 +391,9 @@ class AnthropicPlannerLLM:
         briefs: list[FileBrief],
         prompt: str,
         fallback,
+        assignments: list[PlannerAssignment] | None = None,
     ) -> PlannerResponse:
-        payload = self._messages_payload(briefs, draft_tree, model)
+        payload = self._messages_payload(briefs, draft_tree, model, assignments)
         payload["messages"][0]["content"][0]["text"] = (
             f"{prompt}\n\n{payload['messages'][0]['content'][0]['text']}"
         )

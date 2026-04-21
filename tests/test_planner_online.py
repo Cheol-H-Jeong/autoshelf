@@ -258,8 +258,24 @@ def test_online_pipeline_parses_tool_response(monkeypatch, mock_anthropic, tmp_p
             }
         ],
     )
-    mock_anthropic.responses.extend([proposal, finalize, assign])
+    review = mock_anthropic.make_response(
+        tree={"Documents": {}},
+        assignments=[
+            {
+                "path": "budget.txt",
+                "primary_dir": ["Documents"],
+                "also_relevant": [["Archive"]],
+                "summary": "Grouped into Documents from file type and content signals.",
+                "confidence": 0.55,
+            }
+        ],
+    )
+    mock_anthropic.responses.extend([proposal, finalize, assign, review])
     result = PlannerPipeline(config).plan([file_info], contexts, root=tmp_path)
-    assert result.tree == {"Documents": {}}
+    assert "Documents" in result.tree
+    assert "Archive" in result.tree
     assert result.assignments[0].also_relevant == [["Archive"]]
+    assert result.assignments[0].summary.startswith("Grouped into Documents")
     assert result.usage.input_tokens > 0
+    review_payload = mock_anthropic.calls[-1]
+    assert "current_assignments=" in review_payload["messages"][0]["content"][0]["text"]

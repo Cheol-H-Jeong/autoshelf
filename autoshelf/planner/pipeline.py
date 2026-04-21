@@ -10,6 +10,7 @@ from autoshelf.planner.chunking import FileBrief, chunk_briefs
 from autoshelf.planner.draft import load_draft, save_draft
 from autoshelf.planner.llm import get_planner_llm
 from autoshelf.planner.models import PlanDraft, PlannerAssignment, PlannerUsage
+from autoshelf.planner.review import build_tree_from_assignments
 from autoshelf.planner.validation import validate_and_normalize_tree
 from autoshelf.rules import apply_assignment_rules, load_planning_rules, merge_rule_paths
 from autoshelf.scanner import FileInfo
@@ -78,9 +79,21 @@ class PlannerPipeline:
             self._apply_confidence_rules(assignment)
             for assignment in apply_assignment_rules(assignments, rules)
         ]
+        reviewed = self.llm.review(final_tree, briefs, adjusted)
+        review_assignments = reviewed.assignments or adjusted
+        reviewed_assignments = [
+            self._apply_confidence_rules(assignment)
+            for assignment in apply_assignment_rules(review_assignments, rules)
+        ]
+        reviewed_tree = validate_and_normalize_tree(
+            merge_rule_paths(
+                _merge_trees(reviewed.tree, build_tree_from_assignments(reviewed_assignments)),
+                rules,
+            )
+        )
         result = PlanResult(
-            tree=final_tree,
-            assignments=adjusted,
+            tree=reviewed_tree,
+            assignments=reviewed_assignments,
             unsure_paths=sorted(set(unsure_paths)),
             usage=self.llm.usage,
         )
@@ -89,8 +102,8 @@ class PlannerPipeline:
                 root,
                 PlanDraft(
                     processed_chunks=len(chunks),
-                    tree=final_tree,
-                    assignments=adjusted,
+                    tree=reviewed_tree,
+                    assignments=reviewed_assignments,
                     unsure_paths=result.unsure_paths,
                 ),
             )
@@ -147,3 +160,19 @@ class PlannerPipeline:
         for file_info in files:
             counts[file_info.file_hash] = counts.get(file_info.file_hash, 0) + 1
         return counts
+
+
+def _merge_trees(left: dict[str, object], right: dict[str, object]) -> dict[str, object]:
+    merged: dict[str, object] = {}
+    for key in sorted(set(left) | set(right)):
+        left_child = left.get(key)
+        right_child = right.get(key)
+        if isinstance(left_child, dict) and isinstance(right_child, dict):
+            merged[key] = _merge_trees(left_child, right_child)
+        elif isinstance(left_child, dict):
+            merged[key] = _merge_trees(left_child, {})
+        elif isinstance(right_child, dict):
+            merged[key] = _merge_trees({}, right_child)
+        else:
+            merged[key] = {}
+    return merged
