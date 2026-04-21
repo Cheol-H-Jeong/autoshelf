@@ -1,7 +1,7 @@
 PYTHON ?= python
 
 build-linux:
-	$(PYTHON) packaging/build.py --verify-install
+	$(PYTHON) packaging/build.py --verify-install --verify-wheel
 
 bump-patch:
 	$(PYTHON) packaging/bump_version.py patch
@@ -14,4 +14,4 @@ bump-major:
 
 release:
 	@test -n "$(VERSION)"
-	$(PYTHON) packaging/build.py --verify-install
+	$(PYTHON) packaging/build.py --verify-install --verify-wheel

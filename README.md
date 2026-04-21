@@ -26,14 +26,16 @@ pip install -e .[all]
 With `pipx`:
 
 ```bash
-pipx install '.[all]'
+pipx install --editable '.[all]'
 autoshelf version
 ```
 
-To upgrade a local checkout with the same extras:
+To install a built wheel into an isolated `pipx` environment:
 
 ```bash
-pipx upgrade --editable '.[all]'
+python packaging/build.py --verify-wheel
+pipx install dist/autoshelf-*.whl
+autoshelf version
 ```
 
 ### Windows
@@ -148,10 +150,12 @@ Keyboard shortcuts:
 
 ## Packaging
 
-- `python packaging/build.py --verify-install` creates a Linux release tarball under `dist/` with a vendored runtime, launcher, installer script, desktop entry, and bundled docs.
+- `python packaging/build.py --verify-install --verify-wheel` creates a Linux release tarball under `dist/` with a vendored runtime, launcher, installer script, desktop entry, bundled docs, and a smoke-tested wheel runtime.
 - The Linux bundle installs without downloading Python packages on the target machine; it reuses the runtime wheels already present on the release builder and requires the same Python minor version recorded in `build-metadata.json`.
+- Every tarball now includes `bundle-manifest.json`, a per-file SHA-256 inventory for the shipped Linux bundle itself, plus `build-metadata.json` fields for `bundle_file_count`, `install_verified`, and `wheel_verified`.
 - After extraction, run `./install.sh` to install the release under `~/.local/share/autoshelf/releases/<version>/` and expose `~/.local/bin/autoshelf`.
-- `pipx install '.[all]'` remains the fastest developer or operator install path when you want an isolated editable environment instead of a release tarball.
+- `pipx install --editable '.[all]'` remains the fastest developer path when you want an isolated checkout with optional extras instead of a release tarball.
+- `pipx install dist/autoshelf-*.whl` is the closest production-like CLI install path once you have built and verified a wheel locally.
 - `python packaging/bump_version.py patch|minor|major` updates `pyproject.toml`, `autoshelf/__init__.py`, and adds the next changelog heading.
 - `packaging/pyinstaller.spec` remains available for a future standalone desktop bundle.
 - `packaging/windows/autoshelf.iss` builds the Inno Setup installer.
