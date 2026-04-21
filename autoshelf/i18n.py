@@ -17,7 +17,7 @@ def current_language(config: AppConfig | None = None) -> str:
     cfg = config or AppConfig()
     if cfg.language_preference in {"ko", "en"}:
         return cfg.language_preference
-    default_locale, _ = locale.getdefaultlocale()
+    default_locale, _ = locale.getlocale()
     if default_locale and default_locale.lower().startswith("ko"):
         return "ko"
     return "en"
