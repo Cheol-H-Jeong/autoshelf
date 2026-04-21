@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.18
+
+- Split config migrations into numbered upgrade modules so schema evolution is explicit, reviewable, and easier to extend without growing a single registry file.
+- Added `autoshelf config show` and `autoshelf config migrate --write` so operators can inspect pending config upgrades, rewrite `config.toml` atomically, and keep a sibling backup before the new schema is committed.
+- Documented the config migration workflow and added regression coverage for migration inspection, CLI execution, atomic rewrite, and backup creation.
+
 ## v1.0.17
 
 - Extracted staged move and recovery logic behind a filesystem backend so apply behavior can be exercised against a fake filesystem without touching the host tree.
