@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.12
+
+- Added checksum-backed export bundle inventories plus `IMPORT_GUIDE.md`, and now bundle plan drafts and `.autoshelfrc.yaml` alongside manifests, guides, and resumable run plans for richer support handoff.
+- Hardened `autoshelf import` with staged extraction, archive member validation, duplicate/path traversal rejection, and post-extract SHA-256 verification before imported bundles are committed into `.autoshelf/imports/`.
+- Surfaced bundle version, file counts, and guide paths in CLI results, documented the audited export/import workflow, and added regression coverage for tampered and unsafe archives.
+
 ## v1.0.11
 
 - Extended `.autoshelfrc.yaml` with `exclude_globs` and mapping `priority`, turning the rules file into a stronger per-root control surface for deterministic organization.
