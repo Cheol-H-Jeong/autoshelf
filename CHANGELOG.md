@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.17
+
+- Extracted staged move and recovery logic behind a filesystem backend so apply behavior can be exercised against a fake filesystem without touching the host tree.
+- Wired run-plan hashing and manifest content hashing through the same backend, keeping resumable apply metadata accurate even when tests or future integrations do not use the local filesystem directly.
+- Added regression coverage for fake-filesystem apply runs, cross-device staging, staged-copy recovery, and duplicate-source cleanup after interrupted promotion.
+
 ## v1.0.16
 
 - Persisted staged-copy progress in resumable run plans so cross-device applies can recover after an interruption instead of replaying from an ambiguous filesystem state.
