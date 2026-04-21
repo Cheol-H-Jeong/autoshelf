@@ -71,7 +71,7 @@ When Anthropic planning is enabled, autoshelf sends each file brief with its imm
 The offline FakeLLM path now uses the same ancestry signals instead of relying on extension-only buckets. That means local-first runs can keep customer folders like `clients/acme/`, recognize finance-heavy docs such as invoices and receipts, and split screenshot-heavy image imports into a dedicated bucket without calling the network.
 
 After an apply, run `python -m autoshelf verify /path/to/root` to confirm the on-disk tree still matches the manifest hash chain.
-If an apply is interrupted, rerun `python -m autoshelf apply /path/to/root --resume <run-id>` to finish the recorded run safely. `verify` now reports incomplete runs and leftover staged recovery artifacts under `.autoshelf/` so operators can audit the tree before trusting it.
+If an apply is interrupted, rerun `python -m autoshelf apply /path/to/root --resume <run-id>` to finish the recorded run safely. `verify` now reports incomplete runs, leftover staged recovery artifacts under `.autoshelf/`, duplicate source files left behind after a target was already promoted, and missing staged copies that need operator attention before the tree is trusted.
 
 Before an apply, run `python -m autoshelf preview /path/to/root` to build a browsable `.autoshelf/preview/` tree made from symlinks only. Autoshelf reuses the saved plan draft when it already has assignments, or replans automatically when you pass `--refresh` or there is no complete draft yet. The preview path mirrors final collision handling, so duplicate names render as `file (2).ext` there before you commit to a live move.
 

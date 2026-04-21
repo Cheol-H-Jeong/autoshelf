@@ -66,6 +66,12 @@ If an apply is interrupted, rerun the recorded operation instead of starting ove
 python -m autoshelf apply /srv/incoming --resume <run-id>
 ```
 
+`autoshelf verify` will call out three common interrupted-copy states explicitly:
+
+- `staged_artifact`: a staged `.part` file still exists under `.autoshelf/staging/`.
+- `duplicate_source`: the target file was already promoted but the source copy still exists and should be pruned by `--resume`.
+- `missing_staged_artifact`: the run plan expected a staged copy that is no longer present, which warrants operator review before retrying.
+
 ## Rules File
 
 Put `.autoshelfrc.yaml` at the root you want to organize. The rules file is read for `scan`, `plan`, `preview`, `apply`, and `doctor`.
@@ -146,7 +152,7 @@ pinned_dirs:
 
 `autoshelf preview` creates `.autoshelf/preview/` using symlinks only. It is safe to inspect, index, or open from a file browser because it does not move the live files.
 
-`autoshelf verify` checks the manifest, expected targets, expected shortcuts, and incomplete run state. Run it after each production apply and before trusting a tree that may have been modified by other tools.
+`autoshelf verify` checks the manifest, expected targets, expected shortcuts, incomplete run state, and interrupted copy recovery drift. Run it after each production apply and before trusting a tree that may have been modified by other tools.
 
 ## Export and Import
 
