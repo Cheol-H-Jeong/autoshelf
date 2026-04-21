@@ -13,7 +13,7 @@ from autoshelf.planner.chunking import FileBrief
 from autoshelf.planner.contextual import contextual_primary_dir
 from autoshelf.planner.models import PlannerAssignment, PlannerResponse, PlannerUsage
 from autoshelf.planner.naming import normalize_folder_name
-from autoshelf.planner.prompts import FEW_SHOT_PROMPT, SYSTEM_PROMPT
+from autoshelf.planner.prompts import build_system_prompt_blocks
 from autoshelf.planner.rate_limit import RateLimiter
 from autoshelf.planner.reliability import CircuitBreaker, RetryPolicy
 from autoshelf.planner.review import (
@@ -334,23 +334,13 @@ class AnthropicPlannerLLM:
         assignments: list[PlannerAssignment] | None = None,
     ) -> dict[str, Any]:
         guide_text = self._existing_folder_guide()
-        system_blocks: list[dict[str, Any]] = [{"type": "text", "text": SYSTEM_PROMPT}]
-        if self._config.llm.prompt_cache_enabled:
-            system_blocks.append(
-                {
-                    "type": "text",
-                    "text": FEW_SHOT_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            )
-        else:
-            system_blocks.append({"type": "text", "text": FEW_SHOT_PROMPT})
-        if guide_text:
-            system_blocks.append({"type": "text", "text": f"Existing guide:\n{guide_text}"})
         rules_text = render_rules_prompt(self._rules)
-        if rules_text:
-            system_blocks.append({"type": "text", "text": rules_text})
-        brief_payload = [brief.model_dump() for brief in briefs]
+        system_blocks = build_system_prompt_blocks(
+            guide_text=guide_text,
+            rules_text=rules_text,
+            prompt_cache_enabled=self._config.llm.prompt_cache_enabled,
+        )
+        brief_payload = [brief.prompt_text for brief in briefs]
         assignment_payload = (
             [assignment.model_dump() for assignment in assignments]
             if assignments is not None

@@ -170,6 +170,7 @@ def test_fake_llm_uses_meaningful_parent_folder_for_documents(tmp_path, monkeypa
     result = PlannerPipeline(config).plan([file_info], contexts)
 
     assert result.assignments[0].primary_dir == ["Documents", "acme"]
+    assert result.assignments[0].summary.startswith("Preserves parent context 'acme'")
 
 
 def test_fake_llm_routes_finance_documents_by_context(tmp_path, monkeypatch):
@@ -259,6 +260,7 @@ def test_brief_summary_includes_parent_folder_context():
         path="inbox/client-a/proposal.txt",
         parent_name="client-a",
         parent_path="inbox/client-a",
+        meaningful_parent_hint="client-a",
         filename="proposal.txt",
         extension="txt",
         mtime=datetime(2024, 5, 1).timestamp(),
@@ -269,4 +271,24 @@ def test_brief_summary_includes_parent_folder_context():
 
     assert "parent=client-a" in brief.summary
     assert "ancestry=inbox/client-a" in brief.summary
+    assert "hint=client-a" in brief.summary
     assert "dupes=2" in brief.summary
+
+
+def test_brief_prompt_text_calls_out_meaningful_parent_hint():
+    brief = FileBrief(
+        path="clients/acme/proposals/renewal.txt",
+        parent_name="proposals",
+        parent_path="clients/acme/proposals",
+        meaningful_parent_hint="acme",
+        filename="renewal.txt",
+        extension="txt",
+        mtime=datetime(2024, 5, 1).timestamp(),
+        title="Renewal proposal",
+        head_text="Statement of work for the next term.",
+        duplicate_group_size=1,
+    )
+
+    assert "parent_folder=proposals" in brief.prompt_text
+    assert "ancestor_folders=clients/acme/proposals" in brief.prompt_text
+    assert "meaningful_parent_hint=acme" in brief.prompt_text

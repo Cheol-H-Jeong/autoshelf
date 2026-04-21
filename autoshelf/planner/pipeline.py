@@ -7,6 +7,7 @@ from pathlib import Path
 from autoshelf.config import AppConfig
 from autoshelf.parsers.base import ParsedContext
 from autoshelf.planner.chunking import FileBrief, chunk_briefs
+from autoshelf.planner.contextual import meaningful_parent_folder
 from autoshelf.planner.draft import load_draft, save_draft
 from autoshelf.planner.llm import get_planner_llm
 from autoshelf.planner.models import PlanDraft, PlannerAssignment, PlannerUsage
@@ -111,7 +112,7 @@ class PlannerPipeline:
 
     def _brief(self, file_info: FileInfo, contexts: dict[Path, ParsedContext]) -> FileBrief:
         context = contexts.get(file_info.absolute_path, ParsedContext(file_info.stem, "", {}))
-        return FileBrief(
+        brief = FileBrief(
             path=str(file_info.relative_path),
             parent_name=file_info.parent_name,
             parent_path=self._parent_path(file_info),
@@ -122,6 +123,8 @@ class PlannerPipeline:
             head_text=context.head_text,
             duplicate_group_size=self._duplicate_group_size(file_info),
         )
+        parent_hint = meaningful_parent_folder(brief, fallback="Folder") or ""
+        return brief.model_copy(update={"meaningful_parent_hint": parent_hint})
 
     def _chunk_briefs(self, briefs: list[FileBrief]) -> list[list[FileBrief]]:
         chunks: list[list[FileBrief]] = []

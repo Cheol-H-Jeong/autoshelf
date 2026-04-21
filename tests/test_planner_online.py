@@ -77,13 +77,67 @@ mappings:
     system_text = "\n".join(str(block["text"]) for block in payload["system"])
     assert payload["tool_choice"] == {"type": "tool", "name": "emit_plan"}
     assert payload["tools"][0]["name"] == "emit_plan"
-    assert payload["system"][1]["cache_control"] == {"type": "ephemeral"}
-    assert "Example 1:" in payload["system"][1]["text"]
+    assert payload["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert "Example 1:" in payload["system"][0]["text"]
     assert "Finance/Taxes" in system_text
     assert payload["messages"][0]["content"][0]["text"].startswith("Propose or refine")
-    assert "'parent_name': 'inbox'" in payload["messages"][0]["content"][0]["text"]
-    assert "'parent_path': 'inbox'" in payload["messages"][0]["content"][0]["text"]
-    assert "'duplicate_group_size': 2" in payload["messages"][0]["content"][0]["text"]
+    assert "parent_folder=inbox" in payload["messages"][0]["content"][0]["text"]
+    assert "ancestor_folders=inbox" in payload["messages"][0]["content"][0]["text"]
+    assert "meaningful_parent_hint=-" in payload["messages"][0]["content"][0]["text"]
+    assert "duplicate_group_size=2" in payload["messages"][0]["content"][0]["text"]
+
+
+def test_anthropic_payload_caches_shared_prompt_bundle(monkeypatch, mock_anthropic, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "FOLDER_GUIDE.md").write_text(
+        "Keep contracts under Clients/Contracts.",
+        encoding="utf-8",
+    )
+    (tmp_path / ".autoshelfrc.yaml").write_text(
+        """
+version: 1
+pinned_dirs:
+  - Clients/Contracts
+""".strip(),
+        encoding="utf-8",
+    )
+    config = AppConfig(llm=LLMSettings(provider="anthropic", prompt_cache_enabled=True))
+    llm = AnthropicPlannerLLM(config)
+    mock_anthropic.responses.append(
+        mock_anthropic.make_response(
+            tree={"Clients": {"Contracts": {}}},
+            assignments=[
+                {
+                    "path": "contracts/acme-master-service-agreement.txt",
+                    "primary_dir": ["Clients", "Contracts"],
+                    "also_relevant": [],
+                    "summary": "contract",
+                    "confidence": 0.9,
+                }
+            ],
+        )
+    )
+    brief = FileBrief(
+        path="contracts/acme-master-service-agreement.txt",
+        parent_name="contracts",
+        parent_path="contracts",
+        meaningful_parent_hint="contracts",
+        filename="acme-master-service-agreement.txt",
+        extension="txt",
+        mtime=datetime.now().timestamp(),
+        title="MSA",
+        head_text="Master service agreement",
+    )
+
+    llm.assign({"Clients": {"Contracts": {}}}, [brief])
+
+    payload = mock_anthropic.calls[0]
+    assert len(payload["system"]) == 1
+    assert payload["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert "Existing guide:" in payload["system"][0]["text"]
+    assert "Clients/Contracts" in payload["system"][0]["text"]
+    assert "How to read each brief:" in payload["system"][0]["text"]
 
 
 def test_anthropic_retry_falls_back_on_rate_limit(monkeypatch, mock_anthropic):
