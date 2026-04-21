@@ -81,6 +81,15 @@ For machine consumers, add `--progress json` before the subcommand to emit JSONL
 
 Autoshelf now saves a numbered `schema_version` in `config.toml` and migrates older unversioned configs on load, so desktop settings can evolve without breaking existing installations.
 
+Inspect and apply config upgrades explicitly when you need an operator-audited rollout:
+
+```bash
+python -m autoshelf config show
+python -m autoshelf config migrate --write
+```
+
+`config show` reports the on-disk schema version and pending numbered upgrades. `config migrate --write` rewrites `config.toml` atomically and saves a sibling backup such as `config.toml.bak.v0-to-v2` before the upgraded file is committed.
+
 If you run Anthropic planning against unstable connectivity, tune the new reliability knobs in `config.toml`:
 
 ```toml

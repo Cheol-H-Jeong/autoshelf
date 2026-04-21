@@ -181,6 +181,17 @@ python -m autoshelf --progress json apply /srv/incoming
 
 Each run emits JSONL progress records and ends with a single `result` object on stdout.
 
+## Config Upgrades
+
+Autoshelf keeps a `schema_version` in `config.toml`. Older config files still load, but operators can inspect and apply migrations explicitly:
+
+```bash
+python -m autoshelf config show
+python -m autoshelf config migrate --write
+```
+
+Use `config show` during upgrades or support calls to confirm which numbered migrations are pending. Use `config migrate --write` to rewrite the config atomically and keep a sibling backup like `config.toml.bak.v0-to-v2` for rollback or forensic review.
+
 ## Screenshots
 
 Reserved placeholders for product documentation:
