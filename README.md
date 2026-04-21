@@ -1,4 +1,4 @@
-# autoshelf v1.0.3
+# autoshelf v1.0.5
 
 `autoshelf` scans a folder, extracts lightweight content context, drafts a reversible organization plan, applies moves plus shortcuts, and leaves behind `FOLDER_GUIDE.md`, `FILE_INDEX.md`, and a tamper-evident `manifest.jsonl`.
 

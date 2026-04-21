@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.5
+
+- Added `autoshelf export <root>` to package the current manifest, human guide, file index, resumable run plans, and recent run history into a portable support bundle.
+- Added `autoshelf import <archive> <root>` to unpack those bundles under `.autoshelf/imports/` for offline audit and cross-machine troubleshooting without mutating a live organized tree.
+- Added regression coverage for bundle export/import and documented the operator workflow in the README.
+
 ## v1.0.4
 
 - Applied saved GUI light and dark themes at startup instead of leaving the theme selector disconnected from the actual desktop palette.
