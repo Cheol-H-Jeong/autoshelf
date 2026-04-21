@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.30
+
+- Enriched Anthropic planner briefs into compact natural-language records that now carry the immediate parent folder, full ancestor chain, and a derived `meaningful_parent_hint`, so customer and project anchors survive classification more reliably than raw filename-only prompts.
+- Bundled the shared Anthropic system prefix into one cacheable block with the few-shot examples, live rules, and `FOLDER_GUIDE.md`, reducing repeated prompt overhead across chunked runs while keeping guidance consistent through propose, assign, and review passes.
+- Documented the stronger planner context model and expanded regression coverage around the new brief rendering plus cached system payload shape.
+
 ## v1.0.29
 
 - Added a stable JSONL command lifecycle for `--progress json`, so automation now gets explicit `started`, `completed`, and `failed` events with argv, cwd, version, and exit-code metadata instead of inferring state from ad hoc progress lines.
