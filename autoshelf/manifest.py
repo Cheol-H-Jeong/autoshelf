@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -42,11 +43,14 @@ def write_manifests(
     root: Path,
     tree: dict[str, object],
     assignments: list[PlannerAssignment],
+    *,
+    hash_resolver: Callable[[Path], str] | None = None,
 ) -> None:
     korean = _prefer_korean(assignments)
     guide = _render_folder_guide(tree, korean)
     index = _render_file_index(assignments, korean)
-    manifest_lines = _render_manifest_lines(root, assignments)
+    resolver = hash_resolver or _default_hash_resolver
+    manifest_lines = _render_manifest_lines(root, assignments, resolver)
     _atomic_write(root / "FOLDER_GUIDE.md", guide)
     _atomic_write(root / "FILE_INDEX.md", index)
     _atomic_write(root / "manifest.jsonl", manifest_lines)
@@ -110,15 +114,19 @@ def _render_file_index(assignments: list[PlannerAssignment], korean: bool) -> st
     return "\n".join(lines) + "\n"
 
 
-def _render_manifest_lines(root: Path, assignments: list[PlannerAssignment]) -> str:
-    entries = _build_manifest_entries(root, assignments)
+def _render_manifest_lines(
+    root: Path, assignments: list[PlannerAssignment], hash_resolver: Callable[[Path], str]
+) -> str:
+    entries = _build_manifest_entries(root, assignments, hash_resolver)
     return "\n".join(json.dumps(entry.model_dump(), ensure_ascii=False) for entry in entries) + (
         "\n" if entries else ""
     )
 
 
 def _build_manifest_entries(
-    root: Path, assignments: list[PlannerAssignment]
+    root: Path,
+    assignments: list[PlannerAssignment],
+    hash_resolver: Callable[[Path], str],
 ) -> list[ManifestEntry]:
     entries: list[ManifestEntry] = []
     previous_hash = GENESIS_HASH
@@ -131,7 +139,7 @@ def _build_manifest_entries(
             summary=assignment.summary,
             confidence=assignment.confidence,
             fallback=assignment.fallback,
-            content_hash=_assignment_content_hash(root, assignment),
+            content_hash=_assignment_content_hash(root, assignment, hash_resolver),
             prev_hash=previous_hash,
         )
         entry.entry_hash = entry.computed_entry_hash()
@@ -140,14 +148,12 @@ def _build_manifest_entries(
     return entries
 
 
-def _assignment_content_hash(root: Path, assignment: PlannerAssignment) -> str:
+def _assignment_content_hash(
+    root: Path, assignment: PlannerAssignment, hash_resolver: Callable[[Path], str]
+) -> str:
     source = root / assignment.path
     target = root / _target_path(assignment)
-    if source.exists():
-        return _hash_file(source)
-    if target.exists():
-        return _hash_file(target)
-    return ""
+    return hash_resolver(source) or hash_resolver(target) or ""
 
 
 def _target_path(assignment: PlannerAssignment) -> str:
@@ -175,6 +181,10 @@ def _atomic_write(path: Path, content: str) -> None:
     temp_path = path.with_suffix(path.suffix + ".tmp")
     temp_path.write_text(content, encoding="utf-8")
     temp_path.replace(path)
+
+
+def _default_hash_resolver(path: Path) -> str:
+    return _hash_file(path) if path.exists() else ""
 
 
 def _prefer_korean(assignments: list[PlannerAssignment]) -> bool:

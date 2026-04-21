@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import errno
-import shutil
 import signal
 import uuid
 from collections.abc import Callable
@@ -11,7 +9,6 @@ from pathlib import Path
 from loguru import logger
 
 from autoshelf.apply_state import (
-    CopyStage,
     RunPlanEntry,
     load_run_plan_entries,
     run_staging_dir,
@@ -21,9 +18,10 @@ from autoshelf.apply_state import (
     write_run_state,
 )
 from autoshelf.db import Database, TransactionRecord, default_db_path
+from autoshelf.fileops import FileMover
+from autoshelf.filesystem import Filesystem, LocalFilesystem
 from autoshelf.manifest import write_manifests
 from autoshelf.planner.models import PlannerAssignment
-from autoshelf.scanner import _hash_file
 from autoshelf.shortcuts import copy_fallback, create_shortcut
 from autoshelf.targeting import resolve_assignment_target, safe_target_dir
 
@@ -51,20 +49,33 @@ def apply_plan(
     resume: bool = False,
     conflict_policy: str = "append-counter",
     on_progress: Callable[[str, int, int, str, Path | None], None] | None = None,
+    filesystem: Filesystem | None = None,
 ) -> ApplyResult:
     run_identifier = run_id or uuid.uuid4().hex
+    active_filesystem = filesystem or LocalFilesystem()
     if dry_run:
-        write_manifests(root, tree, assignments)
+        write_manifests(root, tree, assignments, hash_resolver=active_filesystem.hash_file)
         return ApplyResult(
             run_id=run_identifier, moved=[], shortcuts=[], dry_run=True, resumed=resume
         )
 
-    plan_path = write_run_plan(root, assignments, run_identifier)
+    plan_path = write_run_plan(
+        root,
+        assignments,
+        run_identifier,
+        hash_resolver=active_filesystem.hash_file,
+    )
     database = Database(db_path or default_db_path(root))
     planned_entries = load_run_plan_entries(plan_path)
     total_entries = len(planned_entries)
     state_path = run_state_path(root, run_identifier)
     staging_dir = run_staging_dir(root, run_identifier)
+    mover = FileMover(
+        root=root,
+        plan_path=plan_path,
+        staging_dir=staging_dir,
+        filesystem=active_filesystem,
+    )
     moved: list[tuple[Path, Path]] = []
     created_shortcuts: list[Path] = []
     completed_entries = sum(1 for entry in planned_entries if entry.status == "applied")
@@ -106,7 +117,11 @@ def apply_plan(
                         staged_path="",
                     ) or entry
                     source = root / entry.path
-                    if conflict_policy == "skip" and final_target.exists() and source.exists():
+                    if (
+                        conflict_policy == "skip"
+                        and active_filesystem.exists(final_target)
+                        and active_filesystem.exists(source)
+                    ):
                         update_run_entry(plan_path, entry.path, status="skipped")
                         session.add(
                             _transaction_record(
@@ -128,8 +143,8 @@ def apply_plan(
                                 final_target,
                             )
                         continue
-                    reconciled = _recover_interrupted_move(root, plan_path, entry, final_target)
-                    if reconciled is None and not source.exists():
+                    reconciled = mover.recover(entry, final_target)
+                    if reconciled is None and not active_filesystem.exists(source):
                         update_run_entry(plan_path, entry.path, status="skipped")
                         session.add(
                             _transaction_record(
@@ -147,15 +162,8 @@ def apply_plan(
                                 "missing-source", sequence, total_entries, entry.path, final_target
                             )
                         continue
-                    final_target = reconciled or _move_file(
-                        root,
-                        plan_path,
-                        entry.path,
-                        source,
-                        final_target,
-                        staging_dir,
-                    )
-                    _verify_move(
+                    final_target = reconciled or mover.move(entry.path, source, final_target)
+                    mover.verify(
                         source,
                         final_target,
                         entry.source_hash,
@@ -218,7 +226,7 @@ def apply_plan(
             last_error=str(exc),
         )
         raise
-    _cleanup_staging_dir(staging_dir)
+    mover.cleanup()
     write_run_state(
         state_path,
         run_id=run_identifier,
@@ -226,7 +234,7 @@ def apply_plan(
         completed_entries=completed_entries,
         total_entries=total_entries,
     )
-    write_manifests(root, tree, assignments)
+    write_manifests(root, tree, assignments, hash_resolver=active_filesystem.hash_file)
     return ApplyResult(
         run_id=run_identifier,
         moved=moved,
@@ -267,82 +275,6 @@ def _target_for_entry(root: Path, entry: RunPlanEntry, conflict_policy: str) -> 
     return resolve_assignment_target(root, entry.path, entry.primary_dir, conflict_policy)
 
 
-def _move_file(
-    root: Path,
-    plan_path: Path,
-    entry_path: str,
-    source: Path,
-    target: Path,
-    staging_dir: Path,
-) -> Path:
-    try:
-        source.replace(target)
-        return target
-    except OSError as exc:
-        if exc.errno != errno.EXDEV:
-            raise
-    staged_target = _stage_copy(source, target, staging_dir)
-    _record_copy_stage(
-        root,
-        plan_path,
-        entry_path,
-        copy_stage="staged",
-        staged_target=staged_target,
-    )
-    staged_target.replace(target)
-    _record_copy_stage(root, plan_path, entry_path, copy_stage="target-written")
-    source.unlink()
-    return target
-
-
-def _stage_copy(source: Path, target: Path, staging_dir: Path) -> Path:
-    staging_dir.mkdir(parents=True, exist_ok=True)
-    staged_target = staging_dir / f"{uuid.uuid4().hex}{target.suffix}.part"
-    shutil.copy2(source, staged_target)
-    if _hash_file(source) != _hash_file(staged_target):
-        raise ValueError("copy verification failed")
-    return staged_target
-
-
-def _recover_interrupted_move(
-    root: Path,
-    plan_path: Path,
-    entry: RunPlanEntry,
-    target: Path,
-) -> Path | None:
-    source = root / entry.path
-    staged_target = root / entry.staged_path if entry.staged_path else None
-    if _can_finalize_duplicate_source(source, target, entry.source_hash):
-        logger.info("resuming duplicated source cleanup for {}", entry.path)
-        source.unlink()
-        _clear_staged_artifact(staged_target)
-        update_run_entry(
-            plan_path,
-            entry.path,
-            target_path=str(target.relative_to(root)),
-            copy_stage="pending",
-            staged_path="",
-        )
-        return target
-    if staged_target is not None and staged_target.exists():
-        recovered = _recover_staged_target(root, plan_path, entry, source, target, staged_target)
-        if recovered is not None:
-            return recovered
-    if source.exists() or not target.exists():
-        return None
-    if entry.source_hash and _hash_file(target) != entry.source_hash:
-        return None
-    logger.info("resuming completed move for {}", entry.path)
-    update_run_entry(
-        plan_path,
-        entry.path,
-        target_path=str(target.relative_to(root)),
-        copy_stage="pending",
-        staged_path="",
-    )
-    return target
-
-
 def _create_entry_shortcut(root: Path, final_target: Path, extra: list[str]) -> Path:
     shortcut_dir = safe_target_dir(root, extra)
     shortcut_dir.mkdir(parents=True, exist_ok=True)
@@ -352,86 +284,6 @@ def _create_entry_shortcut(root: Path, final_target: Path, extra: list[str]) -> 
         return create_shortcut(final_target, shortcut_path)
     except OSError:
         return copy_fallback(final_target, shortcut_path)
-
-
-def _verify_move(source: Path, target: Path, source_hash: str, *, reconciled: bool = False) -> None:
-    if source.exists() and not reconciled:
-        raise ValueError(f"source still exists after move: {source}")
-    if not target.exists():
-        raise ValueError(f"target missing after move: {target}")
-    if source_hash and _hash_file(target) != source_hash:
-        raise ValueError("target hash mismatch after move")
-
-
-def _cleanup_staging_dir(staging_dir: Path) -> None:
-    if staging_dir.exists():
-        shutil.rmtree(staging_dir)
-
-
-def _record_copy_stage(
-    root: Path,
-    plan_path: Path,
-    entry_path: str,
-    *,
-    copy_stage: CopyStage,
-    staged_target: Path | None = None,
-) -> None:
-    staged_path = ""
-    if staged_target is not None:
-        staged_path = str(staged_target.relative_to(root))
-    update_run_entry(
-        plan_path,
-        entry_path,
-        copy_stage=copy_stage,
-        staged_path=staged_path,
-    )
-
-
-def _can_finalize_duplicate_source(source: Path, target: Path, source_hash: str) -> bool:
-    if not (source.exists() and target.exists()):
-        return False
-    if source_hash:
-        return _hash_file(target) == source_hash
-    return _hash_file(source) == _hash_file(target)
-
-
-def _recover_staged_target(
-    root: Path,
-    plan_path: Path,
-    entry: RunPlanEntry,
-    source: Path,
-    target: Path,
-    staged_target: Path,
-) -> Path | None:
-    if entry.source_hash and _hash_file(staged_target) != entry.source_hash:
-        return None
-    logger.info("recovering staged copy for {}", entry.path)
-    if not target.exists():
-        staged_target.replace(target)
-        update_run_entry(
-            plan_path,
-            entry.path,
-            target_path=str(target.relative_to(root)),
-            copy_stage="target-written",
-            staged_path=str(staged_target.relative_to(root)),
-        )
-    if source.exists():
-        source.unlink()
-    _clear_staged_artifact(staged_target)
-    update_run_entry(
-        plan_path,
-        entry.path,
-        target_path=str(target.relative_to(root)),
-        copy_stage="pending",
-        staged_path="",
-    )
-    return target
-
-
-def _clear_staged_artifact(staged_target: Path | None) -> None:
-    if staged_target is None or not staged_target.exists():
-        return
-    staged_target.unlink()
 
 
 @dataclass(slots=True)

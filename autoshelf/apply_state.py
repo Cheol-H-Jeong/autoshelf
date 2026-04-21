@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -44,10 +45,17 @@ class RunState(BaseModel):
     last_error: str = ""
 
 
-def write_run_plan(root: Path, assignments: list[PlannerAssignment], run_id: str) -> Path:
+def write_run_plan(
+    root: Path,
+    assignments: list[PlannerAssignment],
+    run_id: str,
+    *,
+    hash_resolver: Callable[[Path], str] | None = None,
+) -> Path:
     plan_path = run_plan_path(root, run_id)
     if plan_path.exists():
         return plan_path
+    resolver = hash_resolver or _default_hash_resolver
     entries = [
         RunPlanEntry(
             path=assignment.path,
@@ -56,7 +64,7 @@ def write_run_plan(root: Path, assignments: list[PlannerAssignment], run_id: str
             summary=assignment.summary,
             confidence=assignment.confidence,
             fallback=assignment.fallback,
-            source_hash=_source_hash(root, assignment),
+            source_hash=_source_hash(root, assignment, resolver),
         )
         for assignment in assignments
     ]
@@ -177,9 +185,15 @@ def load_run_plan(plan_path: Path) -> list[dict[str, object]]:
     return [entry.model_dump(mode="json") for entry in load_run_plan_entries(plan_path)]
 
 
-def _source_hash(root: Path, assignment: PlannerAssignment) -> str:
+def _source_hash(
+    root: Path, assignment: PlannerAssignment, hash_resolver: Callable[[Path], str]
+) -> str:
     source = root / assignment.path
-    return _hash_file(source) if source.exists() else ""
+    return str(hash_resolver(source) or "")
+
+
+def _default_hash_resolver(path: Path) -> str:
+    return _hash_file(path) if path.exists() else ""
 
 
 def _timestamp() -> str:
