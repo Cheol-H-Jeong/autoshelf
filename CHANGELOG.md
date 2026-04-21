@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.29
+
+- Added a stable JSONL command lifecycle for `--progress json`, so automation now gets explicit `started`, `completed`, and `failed` events with argv, cwd, version, and exit-code metadata instead of inferring state from ad hoc progress lines.
+- Kept payload-bearing commands pipe-friendly by making the structured `result` line the terminal stdout record even for non-zero-but-expected outcomes like `verify` failures, which lets wrappers preserve the audit payload and still trust the process status.
+- Documented the JSONL stream contract in the README and user guide and expanded CLI regression coverage so integrations do not have to reverse-engineer progress behavior between releases.
+
 ## v1.0.28
 
 - Collapsed identical-content files during apply so autoshelf now moves one canonical copy, turns later duplicates into links at their planned destinations, and restores those duplicate sources correctly during undo.
