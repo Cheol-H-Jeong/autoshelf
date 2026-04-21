@@ -6,6 +6,7 @@ from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
 
 from autoshelf.apply_state import (
+    RunPlanEntry,
     load_all_run_states,
     load_run_plan_entries,
     run_plan_path,
@@ -212,6 +213,7 @@ def _validate_run_state(root: Path) -> list[VerifyIssue]:
                     message=f"run {state.run_id} still has entry status {entry.status}",
                 )
             )
+            issues.extend(_validate_incomplete_entry(root, state.run_id, entry))
         staging_dir = run_staging_dir(root, state.run_id)
         if staging_dir.exists():
             for staged in sorted(path for path in staging_dir.rglob("*") if path.is_file()):
@@ -223,3 +225,44 @@ def _validate_run_state(root: Path) -> list[VerifyIssue]:
                     )
                 )
     return issues
+
+
+def _validate_incomplete_entry(root: Path, run_id: str, entry: RunPlanEntry) -> list[VerifyIssue]:
+    issues: list[VerifyIssue] = []
+    entry_path = Path(entry.path)
+    source = root / entry.path
+    target = root / entry.target_path if entry.target_path else None
+    staged = root / entry.staged_path if entry.staged_path else None
+    if (
+        target is not None
+        and target.exists()
+        and source.exists()
+        and _matching_content(entry.source_hash, source, target)
+    ):
+        issues.append(
+            VerifyIssue(
+                code="duplicate_source",
+                path=entry.path,
+                message=(
+                    f"run {run_id} promoted {entry_path.name} to {entry.target_path} but left the "
+                    "source copy behind; resume can safely prune the duplicate"
+                ),
+            )
+        )
+    if entry.copy_stage == "staged" and staged is not None and not staged.exists():
+        issues.append(
+            VerifyIssue(
+                code="missing_staged_artifact",
+                path=entry.path,
+                message=(
+                    f"run {run_id} expected staged copy {entry.staged_path} before target promotion"
+                ),
+            )
+        )
+    return issues
+
+
+def _matching_content(source_hash: str, source: Path, target: Path) -> bool:
+    if source_hash:
+        return _hash_file(source) == source_hash and _hash_file(target) == source_hash
+    return _hash_file(source) == _hash_file(target)
