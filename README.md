@@ -1,6 +1,6 @@
-# autoshelf v1.0.0
+# autoshelf v1.0.1
 
-`autoshelf` scans a folder, extracts lightweight content context, drafts a reversible organization plan, applies moves plus shortcuts, and leaves behind `FOLDER_GUIDE.md`, `FILE_INDEX.md`, and `manifest.jsonl`.
+`autoshelf` scans a folder, extracts lightweight content context, drafts a reversible organization plan, applies moves plus shortcuts, and leaves behind `FOLDER_GUIDE.md`, `FILE_INDEX.md`, and a tamper-evident `manifest.jsonl`.
 
 ## Features
 
@@ -36,6 +36,7 @@ python -m autoshelf --help
 python -m autoshelf scan /path/to/root
 python -m autoshelf plan /path/to/root --resume
 python -m autoshelf apply /path/to/root --policy append-counter
+python -m autoshelf verify /path/to/root
 python -m autoshelf undo /path/to/root --dry-run
 python -m autoshelf history /path/to/root
 python -m autoshelf stats
@@ -45,6 +46,8 @@ python -m autoshelf gui
 ```
 
 Offline planning is used automatically when `ANTHROPIC_API_KEY` is unset or `llm.provider = "fake"`.
+
+After an apply, run `python -m autoshelf verify /path/to/root` to confirm the on-disk tree still matches the manifest hash chain.
 
 ## GUI
 

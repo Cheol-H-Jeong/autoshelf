@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.1
+
+- Added a tamper-evident hash-chain manifest schema with per-file content hashes.
+- Added `autoshelf verify <root>` to audit applied trees for hash drift, missing targets, broken shortcuts, and unexpected files.
+- Documented the verification workflow in the README CLI examples.
+
 ## v1.0.0
 
 - Added real Anthropic planner integration with structured tool-use payloads and retry/fallback handling.
