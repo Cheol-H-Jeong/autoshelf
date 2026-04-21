@@ -2,8 +2,9 @@
 
 ## v1.0.32
 
-- Harden Review-tab GUI tests by pinning `locale.getlocale` to English and invalidating the i18n catalog cache, so the suite is deterministic on systems with a Korean system locale.
-- Tests-only patch; no runtime behavior change.
+- Added real drag-and-drop reassignment in the desktop Review tree, so operators can move an individual proposed file into a different planned folder before apply instead of treating the preview as read-only.
+- Marked manual review overrides explicitly in the tree, table, and detail panes with the planner's original destination preserved for auditability, which makes human edits visible instead of silently mutating the draft.
+- Documented the review override workflow in the README and user guide and expanded offscreen GUI regression coverage, including deterministic locale handling for the Review tab tests.
 
 ## v1.0.31
 
