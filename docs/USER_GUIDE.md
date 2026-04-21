@@ -240,7 +240,15 @@ python -m autoshelf --progress json plan /srv/incoming
 python -m autoshelf --progress json apply /srv/incoming
 ```
 
-Each run emits JSONL progress records and ends with a single `result` object on stdout.
+The stdout contract is stable JSONL:
+
+- A leading `command` record with `status: "started"` and command metadata such as `argv`, `cwd`, and resolved roots.
+- Zero or more `progress` records while work is underway.
+- A trailing `command` record with `status: "completed"` or `status: "failed"` plus the process exit code.
+- A final `result` record when the command returns structured payload data such as a plan, verify report, or bundle summary.
+- A terminal `error` record only for unexpected exceptions, so wrappers can distinguish product-reported failures from crashes.
+
+That layout keeps stdout pipe-friendly for schedulers and support tooling while stderr remains available for human-readable logs.
 
 ## Man Page
 

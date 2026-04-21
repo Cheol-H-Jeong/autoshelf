@@ -35,3 +35,15 @@ def test_readme_documents_verified_packaging_workflow() -> None:
     assert "bundle-manifest.json" in readme
     assert "examples/fixtures/generate_demo.py" in readme
     assert "pipx install dist/autoshelf-*.whl" in readme
+    assert 'status: "completed"' in readme
+    assert "structured `error` event" in readme
+
+
+def test_user_guide_documents_progress_jsonl_contract() -> None:
+    root = Path(__file__).resolve().parents[1]
+    guide = (root / "docs/USER_GUIDE.md").read_text(encoding="utf-8")
+
+    assert 'status: "started"' in guide
+    assert 'status: "failed"' in guide
+    assert "A final `result` record" in guide
+    assert "terminal `error` record" in guide
