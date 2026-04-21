@@ -2,9 +2,16 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QTreeWidgetItem
 
 from autoshelf.gui.review import ReviewScreen
+
+
+def _first_leaf(screen: ReviewScreen) -> QTreeWidgetItem | None:
+    item = screen.proposed_tree.topLevelItem(0)
+    while item is not None and item.childCount():
+        item = item.child(0)
+    return item
 
 
 def test_review_screen_loads_preview_with_hints(monkeypatch):
@@ -14,10 +21,19 @@ def test_review_screen_loads_preview_with_hints(monkeypatch):
     screen = ReviewScreen()
     assert screen.assignment_table.rowCount() == 2
     assert screen.proposed_tree.topLevelItemCount() >= 1
+    assert "planned files" in screen.summary_label.text().lower()
     top = screen.proposed_tree.topLevelItem(0)
     assert top is not None
     screen.proposed_tree.setCurrentItem(top)
     screen._update_hint_panel()
     hint_text = screen.folder_hint.toPlainText().lower()
     assert "folder" in hint_text or "receives" in hint_text or "documents" in hint_text
+    draft = _first_leaf(screen)
+    assert draft is not None
+    screen.proposed_tree.setCurrentItem(draft)
+    screen._update_hint_panel()
+    selection_text = screen.selection_summary.toPlainText().lower()
+    assert "before:" in selection_text
+    assert "after:" in selection_text
+    assert "confidence:" in selection_text
     app.processEvents()

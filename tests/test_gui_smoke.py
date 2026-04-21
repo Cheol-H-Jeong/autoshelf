@@ -54,6 +54,7 @@ def test_settings_save_updates_window_theme_and_language(monkeypatch, tmp_path):
     assert window.windowTitle() == "오토셸프"
     assert app.palette().color(QPalette.Window).name() == "#172027"
     assert window.tabs.tabText(0) == "홈"
+    assert "계획된 파일" in window.review_screen.summary_label.text()
 
 
 def test_window_shortcuts_trigger_apply_undo_and_rescan(monkeypatch):

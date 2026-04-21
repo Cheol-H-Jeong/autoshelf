@@ -22,12 +22,12 @@ class PreviewItem(BaseModel):
         return Path(self.source_path).name
 
     @property
-    def status(self) -> str:
+    def action(self) -> str:
         if self.source_parts == self.target_parts:
             return "kept"
-        if len(self.source_parts) > 1 and self.source_parts[-1] == self.target_parts[-1]:
+        if self.source_folder:
             return "moved"
-        return "added"
+        return "placed"
 
     @property
     def target_folder(self) -> str:
@@ -36,6 +36,32 @@ class PreviewItem(BaseModel):
     @property
     def source_folder(self) -> str:
         return "/".join(self.source_parts[:-1])
+
+    @property
+    def action_summary(self) -> str:
+        if self.action == "kept":
+            return f"Keep {self.filename} in {self.target_folder or '.'}"
+        if self.action == "moved":
+            return (
+                f"Move {self.filename} from {self.source_folder or '.'} "
+                f"to {self.target_folder or '.'}"
+            )
+        return f"Place {self.filename} into {self.target_folder or '.'}"
+
+    @property
+    def destination_path(self) -> str:
+        return "/".join(self.target_parts)
+
+    @property
+    def source_display(self) -> str:
+        return self.source_path or self.filename
+
+
+def summarize_actions(items: list[PreviewItem]) -> dict[str, int]:
+    counts = {"kept": 0, "moved": 0, "placed": 0}
+    for item in items:
+        counts[item.action] += 1
+    return counts
 
 
 def build_preview_items(assignments: list[PlannerAssignment]) -> list[PreviewItem]:
