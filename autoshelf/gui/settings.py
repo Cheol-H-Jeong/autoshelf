@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from loguru import logger
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -20,11 +21,14 @@ from autoshelf.i18n import t
 
 
 class SettingsScreen(QWidget):
+    config_saved = Signal(AppConfig)
+
     def __init__(self, config: AppConfig | None = None) -> None:
         super().__init__()
         self.config = config or AppConfig.load()
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(t("settings.title", self.config)))
+        self.title_label = QLabel("")
+        layout.addWidget(self.title_label)
         form = QFormLayout()
         self.api_key = QLineEdit()
         self.api_key.setEchoMode(QLineEdit.Password)
@@ -45,19 +49,28 @@ class SettingsScreen(QWidget):
         self.theme.addItems(["system", "light", "dark"])
         self.dry_run = QCheckBox()
         self.exclude_globs = QTextEdit()
-        form.addRow("API key", self.api_key)
-        form.addRow("Classification model", self.classification_model)
-        form.addRow("Planning model", self.planning_model)
-        form.addRow("Review model", self.review_model)
-        form.addRow("Chunk budget", self.chunk_slider)
-        form.addRow("Language", self.language)
-        form.addRow("Theme", self.theme)
-        form.addRow("Dry-run", self.dry_run)
-        form.addRow("Exclude globs", self.exclude_globs)
+        self.api_key_label = QLabel("")
+        self.classification_model_label = QLabel("")
+        self.planning_model_label = QLabel("")
+        self.review_model_label = QLabel("")
+        self.chunk_budget_label = QLabel("")
+        self.language_label = QLabel("")
+        self.theme_label = QLabel("")
+        self.dry_run_label = QLabel("")
+        self.exclude_globs_label = QLabel("")
+        form.addRow(self.api_key_label, self.api_key)
+        form.addRow(self.classification_model_label, self.classification_model)
+        form.addRow(self.planning_model_label, self.planning_model)
+        form.addRow(self.review_model_label, self.review_model)
+        form.addRow(self.chunk_budget_label, self.chunk_slider)
+        form.addRow(self.language_label, self.language)
+        form.addRow(self.theme_label, self.theme)
+        form.addRow(self.dry_run_label, self.dry_run)
+        form.addRow(self.exclude_globs_label, self.exclude_globs)
         layout.addLayout(form)
         actions = QHBoxLayout()
-        self.test_connection = QPushButton(t("settings.test_connection", self.config))
-        self.save_button = QPushButton(t("settings.save", self.config))
+        self.test_connection = QPushButton("")
+        self.save_button = QPushButton("")
         actions.addWidget(self.test_connection)
         actions.addWidget(self.save_button)
         layout.addLayout(actions)
@@ -65,6 +78,7 @@ class SettingsScreen(QWidget):
         layout.addWidget(self.status_label)
 
         self._load_config()
+        self.apply_config(self.config)
         self.save_button.clicked.connect(self.save_config)
 
     def save_config(self) -> None:
@@ -81,9 +95,16 @@ class SettingsScreen(QWidget):
         ]
         config.save()
         self.config = config
+        logger.debug(
+            "Saved GUI settings with theme={} language={}",
+            config.theme,
+            config.language_preference,
+        )
+        self.apply_config(config)
         self.status_label.setText(
             t("settings.saved", self.config, path=str(AppConfig.default_path()))
         )
+        self.config_saved.emit(config)
 
     def _load_config(self) -> None:
         self.classification_model.setCurrentText(self.config.llm.classification_model)
@@ -94,3 +115,17 @@ class SettingsScreen(QWidget):
         self.theme.setCurrentText(self.config.theme)
         self.dry_run.setChecked(self.config.dry_run_default)
         self.exclude_globs.setPlainText("\n".join(self.config.exclude))
+
+    def apply_config(self, config: AppConfig) -> None:
+        self.title_label.setText(t("settings.title", config))
+        self.api_key_label.setText(t("settings.api_key", config))
+        self.classification_model_label.setText(t("settings.classification_model", config))
+        self.planning_model_label.setText(t("settings.planning_model", config))
+        self.review_model_label.setText(t("settings.review_model", config))
+        self.chunk_budget_label.setText(t("settings.chunk_budget", config))
+        self.language_label.setText(t("settings.language", config))
+        self.theme_label.setText(t("settings.theme", config))
+        self.dry_run_label.setText(t("settings.dry_run", config))
+        self.exclude_globs_label.setText(t("settings.exclude_globs", config))
+        self.test_connection.setText(t("settings.test_connection", config))
+        self.save_button.setText(t("settings.save", config))

@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from autoshelf.config import AppConfig
 from autoshelf.i18n import t
 from autoshelf.planner.models import PlannerAssignment
 
@@ -49,19 +50,20 @@ class ReviewScreen(QWidget):
         self.assignment_table.setHorizontalHeaderLabels(
             ["Path", "Target", "Confidence", "Why this folder?", "Also relevant"]
         )
-        layout.addWidget(QLabel(t("review.title")))
+        self.title_label = QLabel("")
+        layout.addWidget(self.title_label)
         layout.addWidget(self.assignment_table)
         self.folder_hint = QTextEdit()
         self.folder_hint.setReadOnly(True)
-        self.folder_hint.setPlaceholderText(t("review.hint_placeholder"))
         layout.addWidget(self.folder_hint)
 
         button_row = QHBoxLayout()
-        self.rerun_button = QPushButton("Re-run Planner")
-        self.approve_button = QPushButton(f"{t('button.apply')} →")
+        self.rerun_button = QPushButton("")
+        self.approve_button = QPushButton("")
         button_row.addWidget(self.rerun_button)
         button_row.addWidget(self.approve_button)
         layout.addLayout(button_row)
+        self.apply_config()
         self.load_preview(self._demo_assignments())
 
     def load_preview(self, assignments: list[PlannerAssignment]) -> None:
@@ -164,10 +166,14 @@ class ReviewScreen(QWidget):
 
     def _preview_message(self, item: PreviewItem) -> str:
         if item.status == "moved":
-            return f"{item.source_folder or '.'} -> {item.target_folder or '.'}"
+            return t(
+                "review.preview_move",
+                source=item.source_folder or ".",
+                target=item.target_folder or ".",
+            )
         if item.status == "kept":
-            return "kept in place"
-        return "new placement"
+            return t("review.preview_kept")
+        return t("review.preview_added")
 
     def _apply_status_style(self, item: QTreeWidgetItem, status: str) -> None:
         colors = {
@@ -205,3 +211,9 @@ class ReviewScreen(QWidget):
                 confidence=0.94,
             ),
         ]
+
+    def apply_config(self, config: AppConfig | None = None) -> None:
+        self.title_label.setText(t("review.title", config))
+        self.folder_hint.setPlaceholderText(t("review.hint_placeholder", config))
+        self.rerun_button.setText(t("review.rerun", config))
+        self.approve_button.setText(f"{t('button.apply', config)} →")
