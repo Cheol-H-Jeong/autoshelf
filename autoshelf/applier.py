@@ -4,6 +4,7 @@ import errno
 import json
 import shutil
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,6 +33,7 @@ def apply_plan(
     run_id: str | None = None,
     resume: bool = False,
     conflict_policy: str = "append-counter",
+    on_progress: Callable[[str, int, int, str, Path | None], None] | None = None,
 ) -> ApplyResult:
     run_identifier = run_id or uuid.uuid4().hex
     if dry_run:
@@ -43,11 +45,14 @@ def apply_plan(
     plan_path = write_run_plan(root, assignments, run_identifier)
     database = Database(db_path or default_db_path(root))
     planned_entries = load_run_plan(plan_path)
+    total_entries = len(planned_entries)
     moved: list[tuple[Path, Path]] = []
     created_shortcuts: list[Path] = []
     with database.session() as session:
         for sequence, entry in enumerate(planned_entries, start=1):
             if resume and entry.get("status") == "applied":
+                if on_progress is not None:
+                    on_progress("resume-skip", sequence, total_entries, entry["path"], None)
                 continue
             source = root / entry["path"]
             target_dir = _safe_target_dir(root, entry["primary_dir"])
@@ -62,6 +67,8 @@ def apply_plan(
                         root, run_identifier, sequence, "move", source, target, "skipped"
                     )
                 )
+                if on_progress is not None:
+                    on_progress("skipped", sequence, total_entries, entry["path"], target)
                 continue
             if not source.exists():
                 _update_plan_status(plan_path, entry["path"], "skipped")
@@ -70,6 +77,8 @@ def apply_plan(
                         root, run_identifier, sequence, "move", source, target, "skipped"
                     )
                 )
+                if on_progress is not None:
+                    on_progress("missing-source", sequence, total_entries, entry["path"], target)
                 continue
             final_target = _move_file(source, target)
             _verify_move(source, final_target, entry["source_hash"])
@@ -82,6 +91,8 @@ def apply_plan(
                     root, run_identifier, sequence, "move", source, final_target, "applied"
                 )
             )
+            if on_progress is not None:
+                on_progress("moved", sequence, total_entries, entry["path"], final_target)
             for extra in entry["also_relevant"]:
                 shortcut_dir = _safe_target_dir(root, extra)
                 shortcut_dir.mkdir(parents=True, exist_ok=True)
@@ -104,6 +115,8 @@ def apply_plan(
                         "applied",
                     )
                 )
+                if on_progress is not None:
+                    on_progress("shortcut", sequence, total_entries, entry["path"], shortcut)
     write_manifests(root, tree, assignments)
     return ApplyResult(
         run_id=run_identifier,

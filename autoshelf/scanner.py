@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import fnmatch
 import hashlib
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,12 +27,18 @@ class FileInfo:
     file_hash: str
 
 
-def scan_directory(root: Path, config: AppConfig | None = None) -> list[FileInfo]:
+def scan_directory(
+    root: Path,
+    config: AppConfig | None = None,
+    on_progress: Callable[[int, int, Path], None] | None = None,
+) -> list[FileInfo]:
     """Recursively inventory a directory."""
 
     cfg = config or AppConfig()
     files: list[FileInfo] = []
-    for path in sorted(root.rglob("*")):
+    paths = sorted(root.rglob("*"))
+    total = len(paths)
+    for index, path in enumerate(paths, start=1):
         if _is_excluded(root, path, cfg.exclude, cfg.include_dotfiles):
             continue
         try:
@@ -55,6 +61,8 @@ def scan_directory(root: Path, config: AppConfig | None = None) -> list[FileInfo
             )
         except OSError as exc:
             logger.warning("scan failed for {}: {}", path, exc)
+        if on_progress is not None:
+            on_progress(index, total, path)
     return files
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,6 +36,7 @@ class PlannerPipeline:
         contexts: dict[Path, ParsedContext],
         root: Path | None = None,
         resume: bool = False,
+        on_chunk_progress: Callable[[int, int, int], None] | None = None,
     ) -> PlanResult:
         rules = load_planning_rules(root)
         self.llm = get_planner_llm(self.config, rules)
@@ -47,10 +49,13 @@ class PlannerPipeline:
             tree = merge_rule_paths(draft.tree, rules)
             start_index = draft.processed_chunks
         unsure_paths: list[str] = list(draft.unsure_paths) if draft is not None else []
+        total_chunks = len(chunks)
         for index, chunk in enumerate(chunks[start_index:], start=start_index):
             response = self.llm.propose(tree, chunk)
             tree = response.tree
             unsure_paths.extend(response.unsure_paths)
+            if on_chunk_progress is not None:
+                on_chunk_progress(index + 1, total_chunks, len(chunk))
             if root is not None:
                 save_draft(
                     root,

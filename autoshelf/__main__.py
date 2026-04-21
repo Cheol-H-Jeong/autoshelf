@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 from dataclasses import asdict
 from pathlib import Path
 
@@ -17,6 +16,7 @@ from autoshelf.doctor import doctor_exit_code, run_diagnostics
 from autoshelf.logging_utils import configure_logging
 from autoshelf.parsers import parse_file
 from autoshelf.planner.pipeline import PlannerPipeline
+from autoshelf.progress import ProgressReporter
 from autoshelf.scanner import scan_directory
 from autoshelf.stats import collect_stats, record_event
 from autoshelf.undo import undo_last_apply
@@ -28,58 +28,57 @@ def main() -> None:
     args = parser.parse_args()
     config = AppConfig.load(Path(args.config) if args.config else None)
     configure_logging(args.log_level)
+    reporter = ProgressReporter(args.command or "gui", args.progress)
     if args.command is None or args.command == "gui":
         from autoshelf.gui.app import launch_gui
 
         launch_gui(test_mode=False)
         return
     if args.command == "version":
-        print(__version__)
+        reporter.print_result(__version__)
         return
     if args.command == "stats":
-        print(json.dumps(collect_stats(), ensure_ascii=False, indent=2))
+        reporter.print_result(collect_stats())
         return
     if args.command == "doctor":
+        reporter.emit("doctor.started")
         report = run_diagnostics(Path(args.root).resolve() if getattr(args, "root", None) else None)
-        print(json.dumps(report, ensure_ascii=False, indent=2))
+        reporter.emit("doctor.completed", data={"status": doctor_exit_code(report)})
+        reporter.print_result(report)
         raise SystemExit(doctor_exit_code(report))
     if args.command == "verify":
+        reporter.emit("verify.started")
         report = verify_root(Path(args.root).expanduser().resolve())
-        print(json.dumps(report.model_dump(mode="json"), ensure_ascii=False, indent=2))
+        reporter.emit("verify.completed", data={"status": verify_exit_code(report)})
+        reporter.print_result(report.model_dump(mode="json"))
         raise SystemExit(verify_exit_code(report))
     if args.command == "export":
+        reporter.emit("export.started")
         result = export_bundle(
             Path(args.root).expanduser().resolve(),
             Path(args.output).expanduser() if args.output else None,
         )
-        print(
-            json.dumps(
-                {
-                    "archive_path": str(result.archive_path),
-                    "manifest_entries": result.metadata.manifest_entries,
-                    "run_plans": result.metadata.run_plans,
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
-        )
+        payload = {
+            "archive_path": str(result.archive_path),
+            "manifest_entries": result.metadata.manifest_entries,
+            "run_plans": result.metadata.run_plans,
+        }
+        reporter.emit("export.completed", data={"archive_path": str(result.archive_path)})
+        reporter.print_result(payload)
         return
     if args.command == "import":
+        reporter.emit("import.started")
         result = import_bundle(
             Path(args.archive).expanduser(),
             Path(args.root).expanduser().resolve(),
         )
-        print(
-            json.dumps(
-                {
-                    "archive_path": str(result.archive_path),
-                    "destination_dir": str(result.destination_dir),
-                    "source_root": result.metadata.source_root,
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
-        )
+        payload = {
+            "archive_path": str(result.archive_path),
+            "destination_dir": str(result.destination_dir),
+            "source_root": result.metadata.source_root,
+        }
+        reporter.emit("import.completed", data={"destination_dir": str(result.destination_dir)})
+        reporter.print_result(payload)
         return
 
     root = Path(args.root).expanduser().resolve()
@@ -90,24 +89,32 @@ def main() -> None:
     if getattr(args, "model", None):
         config.llm.planning_model = args.model
     if args.command == "scan":
-        files = scan_directory(root, config)
+        reporter.emit("scan.started", message=str(root))
+        files = scan_directory(
+            root,
+            config,
+            on_progress=lambda current, total, path: reporter.emit(
+                "scan.walk",
+                current=current,
+                total=total,
+                data={"path": str(path.relative_to(root))},
+            ),
+        )
         _persist_scan(root, files, config)
         record_event("scan", {"files": len(files)})
-        print(json.dumps({"files": len(files)}, ensure_ascii=False))
+        reporter.emit("scan.completed", current=len(files), total=len(files))
+        reporter.print_result({"files": len(files)})
         return
     if args.command == "plan":
-        result = _plan(root, config, resume=args.resume)
+        reporter.emit("plan.started", message=str(root))
+        result = _plan(root, config, resume=args.resume, reporter=reporter)
         record_event("plan", result.usage.model_dump())
-        print(
-            json.dumps(
-                {"tree": result.tree, "unsure_paths": result.unsure_paths},
-                ensure_ascii=False,
-                indent=2,
-            )
-        )
+        reporter.emit("plan.completed", data={"unsure_paths": len(result.unsure_paths)})
+        reporter.print_result({"tree": result.tree, "unsure_paths": result.unsure_paths})
         return
     if args.command == "apply":
-        result = _plan(root, config, resume=False)
+        reporter.emit("apply.plan.started", message=str(root))
+        result = _plan(root, config, resume=False, reporter=reporter)
         outcome = apply_plan(
             root,
             result.assignments,
@@ -117,22 +124,32 @@ def main() -> None:
             run_id=args.resume,
             resume=bool(args.resume),
             conflict_policy=args.policy,
+            on_progress=lambda phase, current, total, path, target: reporter.emit(
+                f"apply.{phase}",
+                current=current,
+                total=total,
+                data={
+                    "path": path,
+                    "target": str(target.relative_to(root)) if target is not None else None,
+                },
+            ),
         )
         record_event("apply", {"moved": len(outcome.moved), **result.usage.model_dump()})
-        print(
-            json.dumps({"run_id": outcome.run_id, "dry_run": outcome.dry_run}, ensure_ascii=False)
-        )
+        reporter.emit("apply.completed", data={"moved": len(outcome.moved)})
+        reporter.print_result({"run_id": outcome.run_id, "dry_run": outcome.dry_run})
         return
     if args.command == "undo":
+        reporter.emit("undo.started", message=str(root))
         outcome = undo_last_apply(
             root, default_db_path(root), run_id=args.run_id, dry_run=args.dry_run
         )
         record_event("undo", {"undone": outcome.undone, "conflicts": len(outcome.conflicts)})
-        print(json.dumps(asdict(outcome), ensure_ascii=False, default=str))
+        reporter.emit("undo.completed", data={"undone": outcome.undone})
+        reporter.print_result(asdict(outcome))
         return
     if args.command == "history":
         history = Database(default_db_path(root)).run_history(root, limit=args.limit)
-        print(json.dumps(history, ensure_ascii=False, indent=2))
+        reporter.print_result(history)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -141,6 +158,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--log-level", default="info", choices=["debug", "info", "warning", "error"]
     )
     parser.add_argument("--config", default=None)
+    parser.add_argument("--progress", default="off", choices=["off", "json"])
     subparsers = parser.add_subparsers(dest="command")
 
     scan = subparsers.add_parser("scan")
@@ -237,14 +255,59 @@ def _persist_scan(root: Path, files: list, config: AppConfig) -> dict[Path, obje
     return contexts
 
 
-def _plan(root: Path, config: AppConfig, resume: bool = False):
-    files = scan_directory(root, config)
-    contexts = {
-        file_info.absolute_path: parse_file(file_info.absolute_path, config.max_head_chars)
-        for file_info in files
-    }
+def _plan(
+    root: Path,
+    config: AppConfig,
+    resume: bool = False,
+    reporter: ProgressReporter | None = None,
+):
+    files = scan_directory(
+        root,
+        config,
+        on_progress=(
+            lambda current, total, path: reporter.emit(
+                "plan.scan",
+                current=current,
+                total=total,
+                data={"path": str(path.relative_to(root))},
+            )
+            if reporter is not None
+            else None
+        ),
+    )
+    if reporter is not None:
+        reporter.emit("plan.parse.started", current=0, total=len(files))
+    contexts = {}
+    for index, file_info in enumerate(files, start=1):
+        contexts[file_info.absolute_path] = parse_file(
+            file_info.absolute_path, config.max_head_chars
+        )
+        if reporter is not None:
+            reporter.emit(
+                "plan.parse",
+                current=index,
+                total=len(files),
+                data={"path": str(file_info.relative_path)},
+            )
     pipeline = PlannerPipeline(config)
-    return pipeline.plan(files, contexts, root=root, resume=resume)
+    if reporter is not None:
+        reporter.emit("plan.chunk.started", current=0, total=len(files))
+    return pipeline.plan(
+        files,
+        contexts,
+        root=root,
+        resume=resume,
+        on_chunk_progress=(
+            lambda current, total, size: reporter.emit(
+                "plan.chunk",
+                current=current,
+                total=total,
+                data={"chunk_size": size},
+            )
+            if reporter is not None
+            else None
+        ),
+    )
 
 
 if __name__ == "__main__":

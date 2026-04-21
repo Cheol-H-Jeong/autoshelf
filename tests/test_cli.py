@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -83,3 +84,39 @@ mappings:
     assert completed.returncode == 0
     assert "Finance" in completed.stdout
     assert "Invoices" in completed.stdout
+
+
+def test_cli_plan_progress_json_streams_events_and_result(tmp_path):
+    (tmp_path / "draft.txt").write_text("hello", encoding="utf-8")
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "autoshelf", "--progress", "json", "plan", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[1],
+        check=True,
+    )
+
+    events = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
+    assert events
+    assert all("event" in event for event in events)
+    assert events[-1]["event"] == "result"
+    assert "tree" in events[-1]["payload"]
+    assert any(event.get("phase") == "plan.parse" for event in events[:-1])
+
+
+def test_cli_apply_progress_json_streams_events_and_result(tmp_path):
+    (tmp_path / "draft.txt").write_text("hello", encoding="utf-8")
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "autoshelf", "--progress", "json", "apply", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[1],
+        check=True,
+    )
+
+    events = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
+    assert events[-1]["event"] == "result"
+    assert "run_id" in events[-1]["payload"]
+    assert any(event.get("phase") == "apply.moved" for event in events[:-1])
