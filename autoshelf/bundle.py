@@ -12,7 +12,9 @@ from pathlib import Path
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from autoshelf.apply_state import load_all_run_states
 from autoshelf.db import Database, default_db_path
+from autoshelf.verify import VerifyReport, verify_root
 
 
 class BundleFileEntry(BaseModel):
@@ -26,11 +28,13 @@ class BundleFileEntry(BaseModel):
 class BundleMetadata(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    bundle_version: int = 2
+    bundle_version: int = 3
     exported_at: str
     source_root: str
     manifest_entries: int = Field(ge=0)
     run_plans: list[str] = Field(default_factory=list)
+    run_states: list[str] = Field(default_factory=list)
+    verify_issues: int = Field(default=0, ge=0)
     history: list[dict[str, object]] = Field(default_factory=list)
     files: list[BundleFileEntry] = Field(default_factory=list)
 
@@ -57,8 +61,9 @@ class _BundleItem:
 def export_bundle(root: Path, destination: Path | None = None) -> ExportBundleResult:
     resolved_root = root.expanduser().resolve()
     archive_path = _resolve_archive_path(resolved_root, destination)
-    bundle_items = _build_bundle_items(resolved_root)
-    metadata = _build_metadata(resolved_root, bundle_items)
+    verify_report = verify_root(resolved_root)
+    bundle_items = _build_bundle_items(resolved_root, verify_report)
+    metadata = _build_metadata(resolved_root, bundle_items, verify_report)
     archive_path.parent.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive_path, "w:gz") as archive:
         _add_bytes(
@@ -106,7 +111,9 @@ def _resolve_archive_path(root: Path, destination: Path | None) -> Path:
     return target.resolve() / f"{root.name}.tar.gz"
 
 
-def _build_metadata(root: Path, bundle_items: list[_BundleItem]) -> BundleMetadata:
+def _build_metadata(
+    root: Path, bundle_items: list[_BundleItem], verify_report: VerifyReport
+) -> BundleMetadata:
     manifest_path = root / "manifest.jsonl"
     manifest_entries = 0
     if manifest_path.exists():
@@ -119,6 +126,7 @@ def _build_metadata(root: Path, bundle_items: list[_BundleItem]) -> BundleMetada
         if runs_dir.exists()
         else []
     )
+    run_states = [f"{state.run_id}.state.json" for state in load_all_run_states(root)]
     database = Database(default_db_path(root))
     history = database.run_history(root, limit=50) if database.path.exists() else []
     return BundleMetadata(
@@ -126,6 +134,8 @@ def _build_metadata(root: Path, bundle_items: list[_BundleItem]) -> BundleMetada
         source_root=str(root),
         manifest_entries=manifest_entries,
         run_plans=run_plans,
+        run_states=run_states,
+        verify_issues=len(verify_report.issues),
         history=history,
         files=[
             BundleFileEntry(
@@ -138,7 +148,7 @@ def _build_metadata(root: Path, bundle_items: list[_BundleItem]) -> BundleMetada
     )
 
 
-def _build_bundle_items(root: Path) -> list[_BundleItem]:
+def _build_bundle_items(root: Path, verify_report: VerifyReport) -> list[_BundleItem]:
     bundle_items: list[_BundleItem] = []
     for name in ("manifest.jsonl", "FOLDER_GUIDE.md", "FILE_INDEX.md"):
         file_path = root / name
@@ -165,18 +175,38 @@ def _build_bundle_items(root: Path) -> list[_BundleItem]:
                 payload=rules_path.read_bytes(),
             )
         )
+    bundle_items.append(
+        _BundleItem(
+            archive_path="bundle/VERIFY_REPORT.json",
+            payload=json.dumps(
+                verify_report.model_dump(mode="json"), ensure_ascii=False, indent=2
+            ).encode("utf-8"),
+        )
+    )
     runs_dir = root / ".autoshelf" / "runs"
-    for plan_path in sorted(runs_dir.glob("*.plan.jsonl")) if runs_dir.exists() else []:
+    for plan_path in sorted(runs_dir.glob("*.json*")) if runs_dir.exists() else []:
         bundle_items.append(
             _BundleItem(
                 archive_path=f"bundle/runs/{plan_path.name}",
                 payload=plan_path.read_bytes(),
             )
         )
+    history = _load_history_payload(root)
+    bundle_items.append(
+        _BundleItem(
+            archive_path="bundle/history.json",
+            payload=json.dumps(history, ensure_ascii=False, indent=2).encode("utf-8"),
+        )
+    )
     bundle_items.append(
         _BundleItem(
             archive_path="bundle/IMPORT_GUIDE.md",
-            payload=_build_import_guide(root, bundle_items).encode("utf-8"),
+            payload=_build_import_guide(
+                root,
+                bundle_items,
+                verify_report=verify_report,
+                history_entries=len(history),
+            ).encode("utf-8"),
         )
     )
     return bundle_items
@@ -190,21 +220,38 @@ def _add_bytes(archive: tarfile.TarFile, name: str, payload: bytes) -> None:
     archive.addfile(info, BytesIO(payload))
 
 
-def _build_import_guide(root: Path, bundle_items: list[_BundleItem]) -> str:
+def _load_history_payload(root: Path) -> list[dict[str, object]]:
+    database = Database(default_db_path(root))
+    if not database.path.exists():
+        return []
+    return database.run_history(root, limit=50)
+
+
+def _build_import_guide(
+    root: Path,
+    bundle_items: list[_BundleItem],
+    *,
+    verify_report: VerifyReport,
+    history_entries: int,
+) -> str:
     exported_at = datetime.now(tz=UTC).isoformat()
     included_paths = "\n".join(f"- `{item.archive_path}`" for item in bundle_items) or "- none"
     return (
         "# Autoshelf Import Guide\n\n"
         f"- Exported at: `{exported_at}`\n"
         f"- Source root: `{root}`\n"
+        f"- Verify issues at export time: `{len(verify_report.issues)}`\n"
+        f"- History entries captured: `{history_entries}`\n"
         f"- Included files:\n{included_paths}\n\n"
         "## How To Use\n\n"
         "1. Run `autoshelf import <archive> <audit-root>` to unpack this bundle into "
         "`<audit-root>/.autoshelf/imports/`.\n"
         "2. Review `bundle/metadata.json` for the bundle inventory and checksums.\n"
-        "3. Open `bundle/manifest.jsonl`, `bundle/FOLDER_GUIDE.md`, `bundle/FILE_INDEX.md`, "
-        "and any run plans before changing the live tree.\n"
-        "4. If the bundle includes `plan_draft.json` or `.autoshelfrc.yaml`, compare them with "
+        "3. Check `bundle/VERIFY_REPORT.json` first to see whether the source tree already had "
+        "drift or incomplete runs when the bundle was exported.\n"
+        "4. Open `bundle/manifest.jsonl`, `bundle/FOLDER_GUIDE.md`, `bundle/FILE_INDEX.md`, "
+        "`bundle/history.json`, and any run plans or run states before changing the live tree.\n"
+        "5. If the bundle includes `plan_draft.json` or `.autoshelfrc.yaml`, compare them with "
         "the source environment before replaying or debugging a run.\n"
     )
 
@@ -288,3 +335,29 @@ def _verify_extracted_files(destination_root: Path, metadata: BundleMetadata) ->
     metadata_path = destination_root / "bundle" / "metadata.json"
     if not metadata_path.exists():
         raise ValueError("bundle metadata missing after import")
+    _validate_imported_bundle(destination_root, metadata)
+
+
+def _validate_imported_bundle(destination_root: Path, metadata: BundleMetadata) -> None:
+    manifest_path = destination_root / "bundle" / "manifest.jsonl"
+    if manifest_path.exists():
+        manifest_entries = sum(
+            1 for line in manifest_path.read_text(encoding="utf-8").splitlines() if line.strip()
+        )
+        if manifest_entries != metadata.manifest_entries:
+            raise ValueError("bundle manifest entry count does not match metadata")
+
+    history_path = destination_root / "bundle" / "history.json"
+    if history_path.exists():
+        history = json.loads(history_path.read_text(encoding="utf-8"))
+        if not isinstance(history, list):
+            raise ValueError("bundle history payload is invalid")
+        if len(history) != len(metadata.history):
+            raise ValueError("bundle history payload does not match metadata")
+
+    verify_path = destination_root / "bundle" / "VERIFY_REPORT.json"
+    if not verify_path.exists():
+        raise ValueError("bundle verify report missing after import")
+    verify_report = VerifyReport.model_validate_json(verify_path.read_text(encoding="utf-8"))
+    if len(verify_report.issues) != metadata.verify_issues:
+        raise ValueError("bundle verify issue count does not match metadata")

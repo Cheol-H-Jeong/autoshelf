@@ -173,9 +173,12 @@ python -m autoshelf import /srv/bundles/incoming.tar.gz /srv/audit
 Exports include `manifest.jsonl`, `FOLDER_GUIDE.md`, `FILE_INDEX.md`, any saved `plan_draft.json`, `.autoshelfrc.yaml`, and resumable run plans. The bundle also includes:
 
 - `bundle/metadata.json`: inventory, file sizes, and SHA-256 checksums for every exported payload file.
+- `bundle/VERIFY_REPORT.json`: the export-time verification snapshot, including incomplete runs or unexpected files already present in the source tree.
+- `bundle/history.json`: recent run history captured from the local autoshelf database for support and audit review.
+- `bundle/runs/*.state.json`: run state snapshots alongside the resumable plan files.
 - `bundle/IMPORT_GUIDE.md`: operator instructions for audit and replay workflows.
 
-Imports are staged under `.autoshelf/imports/` and only moved into place after autoshelf validates the archive structure and checksum inventory. If the archive contains path traversal entries, duplicate members, unsupported tar types, or tampered payloads, the import is rejected.
+Imports are staged under `.autoshelf/imports/` and only moved into place after autoshelf validates the archive structure, checksum inventory, verify report, history payload, and manifest counts. If the archive contains path traversal entries, duplicate members, unsupported tar types, tampered payloads, or metadata drift, the import is rejected.
 
 ## Automation
 

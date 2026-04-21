@@ -86,6 +86,9 @@ def main() -> None:
             "manifest_entries": result.metadata.manifest_entries,
             "files": len(result.metadata.files),
             "run_plans": result.metadata.run_plans,
+            "run_states": result.metadata.run_states,
+            "verify_issues": result.metadata.verify_issues,
+            "history_entries": len(result.metadata.history),
         }
         reporter.emit("export.completed", data={"archive_path": str(result.archive_path)})
         reporter.print_result(payload)
@@ -103,6 +106,10 @@ def main() -> None:
             "files": len(result.metadata.files),
             "guide_path": str(result.destination_dir / "bundle" / "IMPORT_GUIDE.md"),
             "source_root": result.metadata.source_root,
+            "run_plans": result.metadata.run_plans,
+            "run_states": result.metadata.run_states,
+            "verify_issues": result.metadata.verify_issues,
+            "history_entries": len(result.metadata.history),
         }
         reporter.emit("import.completed", data={"destination_dir": str(result.destination_dir)})
         reporter.print_result(payload)
