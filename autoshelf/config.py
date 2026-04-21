@@ -6,6 +6,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from autoshelf.paths import config_dir
+
 
 class LLMSettings(BaseModel):
     """LLM provider and model settings."""
@@ -41,10 +43,7 @@ class AppConfig(BaseModel):
 
     @classmethod
     def default_path(cls) -> Path:
-        if sys.platform == "win32":
-            base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
-            return base / "autoshelf" / "config.toml"
-        return Path.home() / ".config" / "autoshelf" / "config.toml"
+        return config_dir() / "config.toml"
 
     @classmethod
     def load(cls, path: Path | None = None) -> AppConfig:

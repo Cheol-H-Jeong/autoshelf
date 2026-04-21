@@ -16,5 +16,14 @@ def test_cli_help_lists_expected_subcommands():
         text=True,
     )
     output = completed.stdout
-    for name in ["scan", "plan", "apply", "undo", "gui"]:
+    for name in ["scan", "plan", "apply", "undo", "history", "stats", "gui", "doctor", "version"]:
         assert name in output
+
+
+def test_cli_doctor_exits_zero():
+    completed = subprocess.run(
+        [sys.executable, "-m", "autoshelf", "doctor"],
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0

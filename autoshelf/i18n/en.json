@@ -1,0 +1,13 @@
+{
+  "app.title": "autoshelf",
+  "home.title": "Home",
+  "review.title": "Review",
+  "apply.title": "Apply",
+  "history.title": "History",
+  "settings.title": "Settings",
+  "settings.test_connection": "Test connection",
+  "status.offline": "Offline mode",
+  "button.plan": "Plan",
+  "button.apply": "Apply",
+  "button.undo": "Undo"
+}

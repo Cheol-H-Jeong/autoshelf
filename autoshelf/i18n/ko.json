@@ -1,0 +1,13 @@
+{
+  "app.title": "오토셸프",
+  "home.title": "홈",
+  "review.title": "검토",
+  "apply.title": "적용",
+  "history.title": "이력",
+  "settings.title": "설정",
+  "settings.test_connection": "연결 테스트",
+  "status.offline": "오프라인 모드",
+  "button.plan": "계획",
+  "button.apply": "적용",
+  "button.undo": "되돌리기"
+}
