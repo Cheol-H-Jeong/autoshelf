@@ -1,9 +1,17 @@
-build-linux:
-	python packaging/build.py
+PYTHON ?= python
 
-build-windows:
-	python packaging/build.py
+build-linux:
+	$(PYTHON) packaging/build.py
+
+bump-patch:
+	$(PYTHON) packaging/bump_version.py patch
+
+bump-minor:
+	$(PYTHON) packaging/bump_version.py minor
+
+bump-major:
+	$(PYTHON) packaging/bump_version.py major
 
 release:
 	@test -n "$(VERSION)"
-	python packaging/build.py
+	$(PYTHON) packaging/build.py

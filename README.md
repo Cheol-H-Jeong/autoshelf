@@ -1,4 +1,4 @@
-# autoshelf v1.0.1
+# autoshelf v1.0.2
 
 `autoshelf` scans a folder, extracts lightweight content context, drafts a reversible organization plan, applies moves plus shortcuts, and leaves behind `FOLDER_GUIDE.md`, `FILE_INDEX.md`, and a tamper-evident `manifest.jsonl`.
 
@@ -19,6 +19,13 @@
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .[all]
+```
+
+With `pipx`:
+
+```bash
+pipx install '.[all]'
+autoshelf version
 ```
 
 ### Windows
@@ -85,7 +92,9 @@ Run `python -m autoshelf doctor /path/to/root` to confirm the rules file parses 
 
 ## Packaging
 
-- `packaging/pyinstaller.spec` builds the desktop bundle.
+- `python packaging/build.py` creates a Linux release tarball under `dist/` with a wheel, installer script, desktop entry, and bundled docs.
+- `python packaging/bump_version.py patch|minor|major` updates `pyproject.toml`, `autoshelf/__init__.py`, and adds the next changelog heading.
+- `packaging/pyinstaller.spec` remains available for a future standalone desktop bundle.
 - `packaging/windows/autoshelf.iss` builds the Inno Setup installer.
 - `packaging/linux/autoshelf.desktop` is the Linux desktop entry.
 - `packaging/build.py` is the host-aware build driver.
