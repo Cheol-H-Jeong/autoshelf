@@ -145,3 +145,60 @@ def test_verify_root_flags_missing_staged_artifact_for_interrupted_copy(tmp_path
     report = verify_root(tmp_path)
 
     assert {issue.code for issue in report.issues} >= {"missing_staged_artifact"}
+
+
+def test_verify_root_flags_orphan_run_artifacts(tmp_path):
+    run_id = "orphan-run"
+    plan_path = tmp_path / ".autoshelf" / "runs" / f"{run_id}.plan.jsonl"
+    plan_path.parent.mkdir(parents=True, exist_ok=True)
+    plan_path.write_text("", encoding="utf-8")
+    staging_dir = tmp_path / ".autoshelf" / "staging" / "orphan-stage"
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    (staging_dir / "draft.part").write_text("partial", encoding="utf-8")
+
+    report = verify_root(tmp_path)
+
+    assert {issue.code for issue in report.issues} >= {"orphan_run_plan", "orphan_staging_dir"}
+
+
+def test_verify_root_flags_completed_run_metadata_residue(tmp_path):
+    source = tmp_path / "draft.txt"
+    source.write_text("hello", encoding="utf-8")
+    assignment = _assignment("draft.txt", ["Docs"])
+    run_id = "completed-residue"
+    plan_path = write_run_plan(tmp_path, [assignment], run_id)
+    update_run_entry(plan_path, "draft.txt", status="running", target_path="Docs/draft.txt")
+    write_run_state(
+        run_state_path(tmp_path, run_id),
+        run_id=run_id,
+        status="completed",
+        completed_entries=1,
+        total_entries=1,
+    )
+    staged = run_staging_dir(tmp_path, run_id) / "leftover.part"
+    staged.parent.mkdir(parents=True, exist_ok=True)
+    staged.write_text("partial", encoding="utf-8")
+
+    report = verify_root(tmp_path)
+
+    assert {issue.code for issue in report.issues} >= {
+        "completed_run_incomplete_entry",
+        "stale_staging_artifact",
+    }
+
+
+def test_verify_root_flags_missing_run_plan_for_state_file(tmp_path):
+    run_id = "missing-plan"
+    write_run_state(
+        run_state_path(tmp_path, run_id),
+        run_id=run_id,
+        status="interrupted",
+        current_path="draft.txt",
+        completed_entries=0,
+        total_entries=1,
+        last_error="simulated interruption",
+    )
+
+    report = verify_root(tmp_path)
+
+    assert {issue.code for issue in report.issues} >= {"missing_run_plan"}

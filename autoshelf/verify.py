@@ -189,8 +189,22 @@ def _is_ignored(relative: Path) -> bool:
 
 def _validate_run_state(root: Path) -> list[VerifyIssue]:
     issues: list[VerifyIssue] = []
-    for state in load_all_run_states(root):
+    states = load_all_run_states(root)
+    known_run_ids = {state.run_id for state in states}
+    issues.extend(_validate_orphan_run_artifacts(root, known_run_ids))
+    for state in states:
+        plan_path = run_plan_path(root, state.run_id)
+        if not plan_path.exists():
+            issues.append(
+                VerifyIssue(
+                    code="missing_run_plan",
+                    path=str(plan_path.relative_to(root)),
+                    message=f"run {state.run_id} has a state file but no matching run plan",
+                )
+            )
+            continue
         if state.status == "completed":
+            issues.extend(_validate_completed_run(root, state.run_id, plan_path))
             continue
         issues.append(
             VerifyIssue(
@@ -202,7 +216,6 @@ def _validate_run_state(root: Path) -> list[VerifyIssue]:
                 ),
             )
         )
-        plan_path = run_plan_path(root, state.run_id)
         for entry in load_run_plan_entries(plan_path):
             if entry.status == "applied":
                 continue
@@ -224,6 +237,77 @@ def _validate_run_state(root: Path) -> list[VerifyIssue]:
                         message="staged recovery artifact remains from an incomplete run",
                     )
                 )
+    return issues
+
+
+def _validate_orphan_run_artifacts(root: Path, known_run_ids: set[str]) -> list[VerifyIssue]:
+    issues: list[VerifyIssue] = []
+    runs_dir = root / ".autoshelf" / "runs"
+    if runs_dir.exists():
+        for plan_path in sorted(runs_dir.glob("*.plan.jsonl")):
+            run_id = plan_path.name.removesuffix(".plan.jsonl")
+            if run_id in known_run_ids:
+                continue
+            issues.append(
+                VerifyIssue(
+                    code="orphan_run_plan",
+                    path=str(plan_path.relative_to(root)),
+                    message=f"run plan {run_id} exists without a matching state file",
+                )
+            )
+    staging_root = root / ".autoshelf" / "staging"
+    if staging_root.exists():
+        for staging_dir in sorted(path for path in staging_root.iterdir() if path.is_dir()):
+            if staging_dir.name in known_run_ids:
+                continue
+            issues.append(
+                VerifyIssue(
+                    code="orphan_staging_dir",
+                    path=str(staging_dir.relative_to(root)),
+                    message=(
+                        f"staging directory {staging_dir.name} exists without a matching run state"
+                    ),
+                )
+            )
+    return issues
+
+
+def _validate_completed_run(root: Path, run_id: str, plan_path: Path) -> list[VerifyIssue]:
+    issues: list[VerifyIssue] = []
+    non_terminal = [
+        entry
+        for entry in load_run_plan_entries(plan_path)
+        if entry.status not in {"applied", "skipped"}
+    ]
+    for entry in non_terminal:
+        issues.append(
+            VerifyIssue(
+                code="completed_run_incomplete_entry",
+                path=entry.target_path or entry.path,
+                message=(
+                    f"completed run {run_id} still has entry status {entry.status}; "
+                    "the run metadata is inconsistent"
+                ),
+            )
+        )
+    staging_dir = run_staging_dir(root, run_id)
+    if staging_dir.exists():
+        for staged in sorted(path for path in staging_dir.rglob("*") if path.is_file()):
+            issues.append(
+                VerifyIssue(
+                    code="stale_staging_artifact",
+                    path=str(staged.relative_to(root)),
+                    message="completed run left a staged recovery artifact behind",
+                )
+            )
+        if not any(path.is_file() for path in staging_dir.rglob("*")):
+            issues.append(
+                VerifyIssue(
+                    code="stale_staging_dir",
+                    path=str(staging_dir.relative_to(root)),
+                    message="completed run left an empty staging directory behind",
+                )
+            )
     return issues
 
 

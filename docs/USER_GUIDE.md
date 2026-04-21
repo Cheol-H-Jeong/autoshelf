@@ -79,6 +79,14 @@ python -m autoshelf apply /srv/incoming --resume <run-id>
 - `duplicate_source`: the target file was already promoted but the source copy still exists and should be pruned by `--resume`.
 - `missing_staged_artifact`: the run plan expected a staged copy that is no longer present, which warrants operator review before retrying.
 
+It also flags run metadata drift that matters during support and recovery:
+
+- `orphan_run_plan`: a resumable plan exists without a matching state file.
+- `missing_run_plan`: a state file exists but its matching plan is gone.
+- `stale_staging_artifact`: a run marked completed still left recovery files behind.
+
+If `--resume` encounters a missing source file plus a mismatched target, autoshelf now aborts the run instead of writing a fresh manifest over that unexpected target state.
+
 ## Rules File
 
 Put `.autoshelfrc.yaml` at the root you want to organize. The rules file is read for `scan`, `plan`, `preview`, `apply`, and `doctor`.
@@ -159,7 +167,7 @@ pinned_dirs:
 
 `autoshelf preview` creates `.autoshelf/preview/` using symlinks only. It is safe to inspect, index, or open from a file browser because it does not move the live files.
 
-`autoshelf verify` checks the manifest, expected targets, expected shortcuts, incomplete run state, and interrupted copy recovery drift. Run it after each production apply and before trusting a tree that may have been modified by other tools.
+`autoshelf verify` checks the manifest, expected targets, expected shortcuts, incomplete run state, orphaned run artifacts, and interrupted copy recovery drift. Run it after each production apply and before trusting a tree that may have been modified by other tools.
 
 ## Export and Import
 
