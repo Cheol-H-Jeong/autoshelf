@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.13
+
+- Added live desktop theme and language updates so Settings changes immediately refresh the main window, tab labels, and localized control text without a restart.
+- Added global GUI shortcuts for core operator actions: `F5` to rerun scan preview, `Ctrl+Enter` to jump into Apply, and `Ctrl+Z` to stage undo review from History.
+- Hardened the demo GUI worker lifecycle so repeated scan/apply actions clean up their threads correctly, and documented the desktop workflow in the README and user guide.
+
 ## v1.0.12
 
 - Added checksum-backed export bundle inventories plus `IMPORT_GUIDE.md`, and now bundle plan drafts and `.autoshelfrc.yaml` alongside manifests, guides, and resumable run plans for richer support handoff.
