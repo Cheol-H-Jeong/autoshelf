@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.14
+
+- Enriched planner briefs with each file's relative parent path and duplicate-group size so both Anthropic planning and offline planning see stronger ancestry context than a bare filename and immediate parent alone.
+- Upgraded the offline FakeLLM classifier to keep meaningful customer and project parent folders, recognize invoice and receipt-heavy finance documents, and split screenshot imports into a dedicated image bucket without requiring network access.
+- Documented the new ancestry-aware planner behavior in the README and user guide, and added regression coverage for the richer brief payload plus the new offline classification heuristics.
+
 ## v1.0.13
 
 - Added live desktop theme and language updates so Settings changes immediately refresh the main window, tab labels, and localized control text without a restart.
