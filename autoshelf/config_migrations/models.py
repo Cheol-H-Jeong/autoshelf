@@ -9,6 +9,7 @@ class MigrationStep(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     version: int = Field(ge=1)
+    name: str = Field(min_length=1)
     description: str
 
 
