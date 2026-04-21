@@ -42,6 +42,7 @@ pip install -e .[all]
 python -m autoshelf --help
 python -m autoshelf scan /path/to/root
 python -m autoshelf plan /path/to/root --resume
+python -m autoshelf preview /path/to/root
 python -m autoshelf apply /path/to/root --policy append-counter
 python -m autoshelf --progress json plan /path/to/root
 python -m autoshelf verify /path/to/root
@@ -61,6 +62,8 @@ When Anthropic planning is enabled, autoshelf sends each file brief with its imm
 
 After an apply, run `python -m autoshelf verify /path/to/root` to confirm the on-disk tree still matches the manifest hash chain.
 If an apply is interrupted, rerun `python -m autoshelf apply /path/to/root --resume <run-id>` to finish the recorded run safely. `verify` now reports incomplete runs and leftover staged recovery artifacts under `.autoshelf/` so operators can audit the tree before trusting it.
+
+Before an apply, run `python -m autoshelf preview /path/to/root` to build a browsable `.autoshelf/preview/` tree made from symlinks only. Autoshelf reuses the saved plan draft when it already has assignments, or replans automatically when you pass `--refresh` or there is no complete draft yet. The preview path mirrors final collision handling, so duplicate names render as `file (2).ext` there before you commit to a live move.
 
 Use `python -m autoshelf export /path/to/root` to package the current `manifest.jsonl`, `FOLDER_GUIDE.md`, `FILE_INDEX.md`, and resumable run plans into a portable `.tar.gz` bundle. Import that archive into another root with `python -m autoshelf import ...` to unpack it under `.autoshelf/imports/` for offline review, debugging, or support handoff without touching live files.
 
