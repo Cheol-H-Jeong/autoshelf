@@ -44,6 +44,8 @@ python -m autoshelf scan /path/to/root
 python -m autoshelf plan /path/to/root --resume
 python -m autoshelf apply /path/to/root --policy append-counter
 python -m autoshelf verify /path/to/root
+python -m autoshelf export /path/to/root --output /tmp/autoshelf-bundles
+python -m autoshelf import /tmp/autoshelf-bundles/root.tar.gz /path/to/audit-root
 python -m autoshelf undo /path/to/root --dry-run
 python -m autoshelf history /path/to/root
 python -m autoshelf stats
@@ -55,6 +57,8 @@ python -m autoshelf gui
 Offline planning is used automatically when `ANTHROPIC_API_KEY` is unset or `llm.provider = "fake"`.
 
 After an apply, run `python -m autoshelf verify /path/to/root` to confirm the on-disk tree still matches the manifest hash chain.
+
+Use `python -m autoshelf export /path/to/root` to package the current `manifest.jsonl`, `FOLDER_GUIDE.md`, `FILE_INDEX.md`, and resumable run plans into a portable `.tar.gz` bundle. Import that archive into another root with `python -m autoshelf import ...` to unpack it under `.autoshelf/imports/` for offline review, debugging, or support handoff without touching live files.
 
 ## Rules File
 
