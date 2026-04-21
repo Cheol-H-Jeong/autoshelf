@@ -135,6 +135,22 @@ pinned_dirs:
 
 `autoshelf verify` checks the manifest, expected targets, expected shortcuts, and incomplete run state. Run it after each production apply and before trusting a tree that may have been modified by other tools.
 
+## Export and Import
+
+Use export/import when you need a support bundle, an audit package, or a reproducible handoff to another machine:
+
+```bash
+python -m autoshelf export /srv/incoming --output /srv/bundles
+python -m autoshelf import /srv/bundles/incoming.tar.gz /srv/audit
+```
+
+Exports include `manifest.jsonl`, `FOLDER_GUIDE.md`, `FILE_INDEX.md`, any saved `plan_draft.json`, `.autoshelfrc.yaml`, and resumable run plans. The bundle also includes:
+
+- `bundle/metadata.json`: inventory, file sizes, and SHA-256 checksums for every exported payload file.
+- `bundle/IMPORT_GUIDE.md`: operator instructions for audit and replay workflows.
+
+Imports are staged under `.autoshelf/imports/` and only moved into place after autoshelf validates the archive structure and checksum inventory. If the archive contains path traversal entries, duplicate members, unsupported tar types, or tampered payloads, the import is rejected.
+
 ## Automation
 
 For wrappers or schedulers, add `--progress json` before the subcommand:

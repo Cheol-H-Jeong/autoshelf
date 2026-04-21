@@ -63,7 +63,9 @@ def main() -> None:
         )
         payload = {
             "archive_path": str(result.archive_path),
+            "bundle_version": result.metadata.bundle_version,
             "manifest_entries": result.metadata.manifest_entries,
+            "files": len(result.metadata.files),
             "run_plans": result.metadata.run_plans,
         }
         reporter.emit("export.completed", data={"archive_path": str(result.archive_path)})
@@ -78,6 +80,9 @@ def main() -> None:
         payload = {
             "archive_path": str(result.archive_path),
             "destination_dir": str(result.destination_dir),
+            "bundle_version": result.metadata.bundle_version,
+            "files": len(result.metadata.files),
+            "guide_path": str(result.destination_dir / "bundle" / "IMPORT_GUIDE.md"),
             "source_root": result.metadata.source_root,
         }
         reporter.emit("import.completed", data={"destination_dir": str(result.destination_dir)})
