@@ -16,7 +16,13 @@ jobs:
           python-version: '3.11'
       - run: python -m pip install --upgrade pip
       - run: pip install -e .[all]
-      - run: python packaging/build.py
+      - run: python packaging/build.py --verify-install
+      - uses: actions/upload-artifact@v4
+        with:
+          name: autoshelf-linux-bundle
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
 
   build-windows:
     runs-on: windows-latest
@@ -27,4 +33,4 @@ jobs:
           python-version: '3.11'
       - run: python -m pip install --upgrade pip
       - run: pip install -e .[all]
-      - run: python packaging/build.py
+      - run: python -m compileall autoshelf

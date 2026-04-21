@@ -426,10 +426,13 @@ def _load_project_metadata(project_root: Path) -> ProjectMetadata:
     pyproject_path = project_root / "pyproject.toml"
     document = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
     project = document["project"]
+    runtime_dependencies = tuple(
+        Requirement(requirement).name for requirement in project.get("dependencies", [])
+    )
     return ProjectMetadata(
         name=project["name"],
         version=project["version"],
-        runtime_dependencies=tuple(project.get("dependencies", [])),
+        runtime_dependencies=runtime_dependencies,
     )
 
 
