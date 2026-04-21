@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.23
+
+- Added a per-file `bundle-manifest.json` audit inventory to Linux release tarballs and surfaced `bundle_file_count` in `build-metadata.json`, so customers can independently verify exactly what was shipped.
+- Extended `packaging/build.py` with a wheel-runtime smoke test that installs the wheel into an isolated runtime overlay, runs `autoshelf version`, and records `wheel_verified` alongside the existing bundle install verification.
+- Updated the packaging docs and release Makefile so the documented and scripted release path now uses `--verify-install --verify-wheel`, and clarified the supported `pipx` workflows for editable checkouts versus built wheels.
+
 ## v1.0.22
 
 - Added a full-plan review stage after initial classification so autoshelf can revisit the proposed tree with the whole corpus in view, collapse weak workflow buckets, and keep stronger repeated business parents.

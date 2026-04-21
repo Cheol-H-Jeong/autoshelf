@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import sys
@@ -91,6 +92,46 @@ def test_bump_version_script_updates_version_files(tmp_path):
     changelog_text = (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8")
     assert '__version__ = "1.0.3"' in init_text
     assert "## v1.0.3" in changelog_text
+
+
+def test_copy_distribution_skips_escaping_paths(tmp_path, monkeypatch):
+    build_module = _load_build_module()
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    (source_root / "header.h").write_text("header", encoding="utf-8")
+    package_dir = source_root / "greenlet"
+    package_dir.mkdir()
+    (package_dir / "__init__.py").write_text("runtime", encoding="utf-8")
+
+    class FakeDistribution:
+        files = ["../../../include/site/python3.12/greenlet/header.h", "greenlet/__init__.py"]
+
+        def locate_file(self, file: object) -> Path:
+            relative = Path(str(file))
+            return source_root / relative.name if ".." in relative.parts else source_root / relative
+
+    monkeypatch.setattr(
+        build_module.importlib_metadata,
+        "distribution",
+        lambda name: FakeDistribution(),
+    )
+
+    build_module._copy_distribution("greenlet", runtime_dir)
+
+    assert not (tmp_path / "include").exists()
+    assert (runtime_dir / "greenlet" / "__init__.py").read_text(encoding="utf-8") == "runtime"
+
+
+def _load_build_module():
+    module_path = Path(__file__).resolve().parents[1] / "packaging" / "build.py"
+    spec = importlib.util.spec_from_file_location("autoshelf_packaging_build", module_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _write_sample_project(root: Path) -> None:

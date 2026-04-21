@@ -238,15 +238,24 @@ def _copy_distribution(distribution_name: str, runtime_dir: Path) -> None:
         raise RuntimeError(f"Installed distribution metadata is incomplete for {distribution_name}")
     copied = 0
     for file in files:
+        destination = _distribution_destination(runtime_dir, file)
+        if destination is None:
+            continue
         source = Path(distribution.locate_file(file))
         if not source.exists() or source.is_dir():
             continue
-        destination = runtime_dir / Path(file)
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
         copied += 1
     if copied == 0:
         raise RuntimeError(f"No installable files found for {distribution_name}")
+
+
+def _distribution_destination(runtime_dir: Path, package_file: object) -> Path | None:
+    relative_path = Path(str(package_file))
+    if relative_path.is_absolute() or ".." in relative_path.parts:
+        return None
+    return runtime_dir / relative_path
 
 
 def _write_bundle_readme(
