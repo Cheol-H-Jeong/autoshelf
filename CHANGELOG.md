@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.28
+
+- Collapsed identical-content files during apply so autoshelf now moves one canonical copy, turns later duplicates into links at their planned destinations, and restores those duplicate sources correctly during undo.
+- Taught `.autoshelf/preview/` to mirror that duplicate collapsing so operators see the real storage outcome before committing a live apply.
+- Expanded regression coverage and operator docs around deduped apply, preview, undo, and verify flows.
+
 ## v1.0.27
 
 - Added source-scoped `.autoshelfrc.yaml` mappings plus `target: "@current"` support, so operators can constrain a rule to specific intake folders and keep matched files in place when that policy is safer than moving them.
