@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.6
+
+- Improved planner briefs by including each file's immediate parent folder name in the classification payload and summary text, preserving signals from staging folders like receipts, clients, or lecture materials.
+- Added stable few-shot planner examples to the Anthropic system prompt in a cacheable block so repeated planning runs reuse shared instruction tokens more effectively.
+- Added regression coverage for the richer brief payload and updated the README to document how autoshelf now uses parent-folder context during online classification.
+
 ## v1.0.5
 
 - Added `autoshelf export <root>` to package the current manifest, human guide, file index, resumable run plans, and recent run history into a portable support bundle.
