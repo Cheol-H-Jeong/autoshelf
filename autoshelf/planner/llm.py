@@ -13,7 +13,7 @@ from autoshelf.config import AppConfig
 from autoshelf.planner.chunking import FileBrief
 from autoshelf.planner.models import PlannerAssignment, PlannerResponse, PlannerUsage
 from autoshelf.planner.naming import normalize_folder_name
-from autoshelf.planner.prompts import SYSTEM_PROMPT
+from autoshelf.planner.prompts import FEW_SHOT_PROMPT, SYSTEM_PROMPT
 from autoshelf.planner.rate_limit import RateLimiter
 from autoshelf.rules import PlanningRules, render_rules_prompt
 
@@ -255,24 +255,27 @@ class AnthropicPlannerLLM:
         self, briefs: list[FileBrief], tree: dict[str, Any], model: str
     ) -> dict[str, Any]:
         guide_text = self._existing_folder_guide()
-        sections = [SYSTEM_PROMPT]
+        system_blocks: list[dict[str, Any]] = [{"type": "text", "text": SYSTEM_PROMPT}]
+        if self._config.llm.prompt_cache_enabled:
+            system_blocks.append(
+                {
+                    "type": "text",
+                    "text": FEW_SHOT_PROMPT,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            )
+        else:
+            system_blocks.append({"type": "text", "text": FEW_SHOT_PROMPT})
         if guide_text:
-            sections.append(f"Existing guide:\n{guide_text}")
+            system_blocks.append({"type": "text", "text": f"Existing guide:\n{guide_text}"})
         rules_text = render_rules_prompt(self._rules)
         if rules_text:
-            sections.append(rules_text)
-        system_text = "\n\n".join(sections)
+            system_blocks.append({"type": "text", "text": rules_text})
         brief_payload = [brief.model_dump() for brief in briefs]
         return {
             "model": model,
             "max_tokens": 4096,
-            "system": [
-                {
-                    "type": "text",
-                    "text": system_text,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
+            "system": system_blocks,
             "tools": [
                 {
                     "name": "emit_plan",

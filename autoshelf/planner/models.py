@@ -9,6 +9,7 @@ class FileBriefModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     path: str
+    parent_name: str = ""
     filename: str
     extension: str
     mtime: float
@@ -18,8 +19,9 @@ class FileBriefModel(BaseModel):
     @property
     def summary(self) -> str:
         excerpt = self.head_text.replace("\n", " ").strip()[:180]
+        parent = self.parent_name.strip() or "-"
         return (
-            f"{self.filename} | ext={self.extension} | mtime={int(self.mtime)} | "
+            f"{self.filename} | parent={parent} | ext={self.extension} | mtime={int(self.mtime)} | "
             f"title={self.title} | excerpt={excerpt}"
         )[:300]
 

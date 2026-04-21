@@ -93,6 +93,7 @@ class PlannerPipeline:
         context = contexts.get(file_info.absolute_path, ParsedContext(file_info.stem, "", {}))
         return FileBrief(
             path=str(file_info.relative_path),
+            parent_name=file_info.parent_name,
             filename=file_info.filename,
             extension=file_info.extension,
             mtime=file_info.mtime,

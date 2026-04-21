@@ -46,6 +46,7 @@ mappings:
         [
             FileBrief(
                 path="draft.txt",
+                parent_name="inbox",
                 filename="draft.txt",
                 extension="txt",
                 mtime=datetime.now().timestamp(),
@@ -55,11 +56,14 @@ mappings:
         ],
     )
     payload = mock_anthropic.calls[0]
+    system_text = "\n".join(str(block["text"]) for block in payload["system"])
     assert payload["tool_choice"] == {"type": "tool", "name": "emit_plan"}
     assert payload["tools"][0]["name"] == "emit_plan"
-    assert payload["system"][0]["cache_control"] == {"type": "ephemeral"}
-    assert "Finance/Taxes" in payload["system"][0]["text"]
+    assert payload["system"][1]["cache_control"] == {"type": "ephemeral"}
+    assert "Example 1:" in payload["system"][1]["text"]
+    assert "Finance/Taxes" in system_text
     assert payload["messages"][0]["content"][0]["text"].startswith("Propose or refine")
+    assert "'parent_name': 'inbox'" in payload["messages"][0]["content"][0]["text"]
 
 
 def test_anthropic_retry_falls_back_on_rate_limit(monkeypatch, mock_anthropic):
@@ -79,6 +83,7 @@ def test_anthropic_retry_falls_back_on_rate_limit(monkeypatch, mock_anthropic):
         [
             FileBrief(
                 path="draft.txt",
+                parent_name="inbox",
                 filename="draft.txt",
                 extension="txt",
                 mtime=datetime.now().timestamp(),

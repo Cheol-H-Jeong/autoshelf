@@ -5,6 +5,7 @@ from pathlib import Path
 
 from autoshelf.config import AppConfig
 from autoshelf.parsers.base import ParsedContext
+from autoshelf.planner.chunking import FileBrief
 from autoshelf.planner.draft import draft_path
 from autoshelf.planner.naming import validate_folder_name
 from autoshelf.planner.pipeline import PlannerPipeline
@@ -33,6 +34,7 @@ def test_fake_llm_produces_valid_tree(tmp_path, monkeypatch):
     assert result.assignments[0].primary_dir[0] in {"Spreadsheets", "스프레드시트"}
     for name in result.tree:
         validate_folder_name(name)
+    assert result.assignments[0].path == "budget.xlsx"
 
 
 def test_naming_validator_rejects_misc():
@@ -143,3 +145,17 @@ mappings:
     assert result.tree["Finance"]["Invoices"] == {}
     assert result.assignments[0].primary_dir == ["Finance", "Invoices"]
     assert result.assignments[0].also_relevant == [["Documents"]]
+
+
+def test_brief_summary_includes_parent_folder_context():
+    brief = FileBrief(
+        path="inbox/client-a/proposal.txt",
+        parent_name="client-a",
+        filename="proposal.txt",
+        extension="txt",
+        mtime=datetime(2024, 5, 1).timestamp(),
+        title="Proposal",
+        head_text="Statement of work",
+    )
+
+    assert "parent=client-a" in brief.summary
