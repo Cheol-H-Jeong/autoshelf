@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import time
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +14,7 @@ from autoshelf.planner.models import PlannerAssignment, PlannerResponse, Planner
 from autoshelf.planner.naming import normalize_folder_name
 from autoshelf.planner.prompts import FEW_SHOT_PROMPT, SYSTEM_PROMPT
 from autoshelf.planner.rate_limit import RateLimiter
+from autoshelf.planner.reliability import CircuitBreaker, RetryPolicy
 from autoshelf.rules import PlanningRules, render_rules_prompt
 
 
@@ -150,6 +150,16 @@ class AnthropicPlannerLLM:
         self._rate_limiter = RateLimiter(
             requests_per_second=config.llm.requests_per_second,
             concurrency=config.llm.concurrency,
+        )
+        self._retry_policy = RetryPolicy(
+            max_retries=config.llm.max_retries,
+            base_delay_seconds=config.llm.retry_base_delay_ms / 1000,
+            max_delay_seconds=config.llm.retry_max_delay_ms / 1000,
+            jitter_seconds=config.llm.retry_jitter_ms / 1000,
+        )
+        self._circuit_breaker = CircuitBreaker(
+            failure_threshold=config.llm.circuit_breaker_threshold,
+            cooldown_seconds=float(config.llm.circuit_breaker_cooldown_seconds),
         )
         self._fallback = FakeLLM()
         self._usage = PlannerUsage()
@@ -309,12 +319,19 @@ class AnthropicPlannerLLM:
         payload["messages"][0]["content"][0]["text"] = (
             f"{prompt}\n\n{payload['messages'][0]['content'][0]['text']}"
         )
+        if not self._circuit_breaker.allow_request():
+            logger.bind(component="planner").warning(
+                "anthropic circuit breaker open; using fallback for model={}",
+                model,
+            )
+            return self._fallback_response(fallback())
         errors = self._retryable_errors()
-        for attempt in range(self._config.llm.max_retries + 1):
+        for attempt in range(self._retry_policy.max_retries + 1):
             try:
                 with self._rate_limiter:
                     response = self._client.messages.create(**payload)
                 parsed = self._parse_response(response)
+                self._circuit_breaker.record_success()
                 usage = getattr(response, "usage", None)
                 self._usage.add_usage(
                     input_tokens=getattr(usage, "input_tokens", 0) or 0,
@@ -333,21 +350,19 @@ class AnthropicPlannerLLM:
                 )
                 return parsed
             except errors as exc:
-                if attempt >= self._config.llm.max_retries:
+                if attempt >= self._retry_policy.max_retries:
                     break
-                time.sleep(min(8.0, 0.5 * (2**attempt)))
+                delay = self._retry_policy.sleep_for_attempt(attempt)
                 logger.bind(component="planner").warning(
-                    "retryable anthropic error on attempt {}: {}",
+                    "retryable anthropic error on attempt {} after {:.2f}s delay: {}",
                     attempt + 1,
+                    delay,
                     exc,
                 )
             except Exception:
                 break
-        result = fallback()
-        self._usage.fallback_chunks += 1
-        for assignment in result.assignments:
-            assignment.fallback = True
-        return result
+        self._circuit_breaker.record_failure()
+        return self._fallback_response(fallback())
 
     def _parse_response(self, response: Any) -> PlannerResponse:
         for block in getattr(response, "content", []):
@@ -373,6 +388,12 @@ class AnthropicPlannerLLM:
             anthropic.InternalServerError,
             anthropic.APIConnectionError,
         )
+
+    def _fallback_response(self, result: PlannerResponse) -> PlannerResponse:
+        self._usage.fallback_chunks += 1
+        for assignment in result.assignments:
+            assignment.fallback = True
+        return result
 
 
 def get_planner_llm(

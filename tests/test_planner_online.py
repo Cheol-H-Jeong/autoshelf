@@ -68,8 +68,17 @@ mappings:
 
 def test_anthropic_retry_falls_back_on_rate_limit(monkeypatch, mock_anthropic):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    monkeypatch.setattr("autoshelf.planner.llm.time.sleep", lambda _: None)
-    config = AppConfig(llm=LLMSettings(provider="anthropic", max_retries=2))
+    sleeps: list[float] = []
+    monkeypatch.setattr("autoshelf.planner.reliability.random.uniform", lambda _start, _end: 0.125)
+    config = AppConfig(
+        llm=LLMSettings(
+            provider="anthropic",
+            max_retries=2,
+            retry_base_delay_ms=500,
+            retry_max_delay_ms=4000,
+            retry_jitter_ms=250,
+        )
+    )
     mock_anthropic.responses.extend(
         [
             mock_anthropic.module.RateLimitError("too many"),
@@ -78,6 +87,11 @@ def test_anthropic_retry_falls_back_on_rate_limit(monkeypatch, mock_anthropic):
         ]
     )
     llm = AnthropicPlannerLLM(config)
+    monkeypatch.setattr(
+        type(llm._retry_policy),
+        "sleep_for_attempt",
+        lambda self, attempt: sleeps.append([0.625, 1.125][attempt]) or sleeps[-1],
+    )
     assignments = llm.assign(
         {"Documents": {}},
         [
@@ -93,8 +107,94 @@ def test_anthropic_retry_falls_back_on_rate_limit(monkeypatch, mock_anthropic):
         ],
     )
     assert len(mock_anthropic.calls) == 3
+    assert sleeps == [0.625, 1.125]
     assert assignments[0].fallback is True
     assert llm.usage.fallback_chunks == 1
+
+
+def test_anthropic_circuit_breaker_skips_calls_while_open(monkeypatch, mock_anthropic):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    config = AppConfig(
+        llm=LLMSettings(
+            provider="anthropic",
+            max_retries=0,
+            circuit_breaker_threshold=1,
+            circuit_breaker_cooldown_seconds=60,
+        )
+    )
+    mock_anthropic.responses.append(mock_anthropic.module.RateLimitError("outage"))
+    llm = AnthropicPlannerLLM(config)
+    briefs = [
+        FileBrief(
+            path="draft.txt",
+            parent_name="inbox",
+            filename="draft.txt",
+            extension="txt",
+            mtime=datetime.now().timestamp(),
+            title="Draft",
+            head_text="notes",
+        )
+    ]
+
+    first = llm.assign({"Documents": {}}, briefs)
+    second = llm.assign({"Documents": {}}, briefs)
+
+    assert len(mock_anthropic.calls) == 1
+    assert first[0].fallback is True
+    assert second[0].fallback is True
+    assert llm.usage.fallback_chunks == 2
+
+
+def test_anthropic_circuit_breaker_recovers_after_cooldown(monkeypatch, mock_anthropic):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    now = {"value": 0.0}
+    monkeypatch.setattr("autoshelf.planner.reliability.time.monotonic", lambda: now["value"])
+    config = AppConfig(
+        llm=LLMSettings(
+            provider="anthropic",
+            max_retries=0,
+            circuit_breaker_threshold=1,
+            circuit_breaker_cooldown_seconds=30,
+        )
+    )
+    mock_anthropic.responses.append(mock_anthropic.module.RateLimitError("outage"))
+    llm = AnthropicPlannerLLM(config)
+    briefs = [
+        FileBrief(
+            path="draft.txt",
+            parent_name="inbox",
+            filename="draft.txt",
+            extension="txt",
+            mtime=datetime.now().timestamp(),
+            title="Draft",
+            head_text="notes",
+        )
+    ]
+
+    first = llm.assign({"Documents": {}}, briefs)
+    second = llm.assign({"Documents": {}}, briefs)
+    now["value"] = 31.0
+    mock_anthropic.responses.append(
+        mock_anthropic.make_response(
+            tree={"Documents": {}},
+            assignments=[
+                {
+                    "path": "draft.txt",
+                    "primary_dir": ["Documents"],
+                    "also_relevant": [],
+                    "summary": "draft",
+                    "confidence": 0.8,
+                }
+            ],
+        )
+    )
+    third = llm.assign({"Documents": {}}, briefs)
+
+    assert len(mock_anthropic.calls) == 2
+    assert first[0].fallback is True
+    assert second[0].fallback is True
+    assert third[0].fallback is False
+    assert llm.usage.fallback_chunks == 2
 
 
 def test_online_pipeline_parses_tool_response(monkeypatch, mock_anthropic, tmp_path):
