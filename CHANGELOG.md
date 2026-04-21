@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.27
+
+- Added source-scoped `.autoshelfrc.yaml` mappings plus `target: "@current"` support, so operators can constrain a rule to specific intake folders and keep matched files in place when that policy is safer than moving them.
+- Added `autoshelf rules show` and `autoshelf rules match` for normalized policy inspection and per-path rule explanations before a live plan or apply run.
+- Expanded rule diagnostics and regression coverage so `autoshelf doctor` now reports source-scoped and current-target rule counts alongside the existing rules summary.
+
 ## v1.0.26
 
 - Added a generated `packaging/linux/autoshelf.1` man page sourced from the live argparse surface, and now ship it inside Linux bundle artifacts so CLI docs do not drift from the product.
