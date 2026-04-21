@@ -104,3 +104,42 @@ def test_resume_from_draft_skips_completed_chunks(tmp_path, monkeypatch):
     resumed = PlannerPipeline(config).plan(files, contexts, root=tmp_path, resume=True)
     assert resumed.tree == result.tree
     assert len(resumed.assignments) == len(result.assignments)
+
+
+def test_rules_file_seeds_tree_and_overrides_assignment(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    (tmp_path / ".autoshelfrc.yaml").write_text(
+        """
+version: 1
+pinned_dirs:
+  - Finance/Taxes
+mappings:
+  - glob: "*.invoice.pdf"
+    target: Finance/Invoices
+    also_relevant:
+      - Documents
+""".strip(),
+        encoding="utf-8",
+    )
+    config = AppConfig()
+    mtime = datetime(2024, 5, 1).timestamp()
+    file_info = FileInfo(
+        absolute_path=tmp_path / "acme.invoice.pdf",
+        relative_path=Path("acme.invoice.pdf"),
+        parent_name="incoming",
+        filename="acme.invoice.pdf",
+        stem="acme.invoice",
+        extension="pdf",
+        size_bytes=3,
+        mtime=mtime,
+        ctime=mtime,
+        file_hash="abc",
+    )
+    contexts = {file_info.absolute_path: ParsedContext("Invoice", "amount due", {})}
+
+    result = PlannerPipeline(config).plan([file_info], contexts, root=tmp_path)
+
+    assert result.tree["Finance"]["Taxes"] == {}
+    assert result.tree["Finance"]["Invoices"] == {}
+    assert result.assignments[0].primary_dir == ["Finance", "Invoices"]
+    assert result.assignments[0].also_relevant == [["Documents"]]

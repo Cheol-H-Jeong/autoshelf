@@ -15,6 +15,7 @@ from autoshelf.planner.models import PlannerAssignment, PlannerResponse, Planner
 from autoshelf.planner.naming import normalize_folder_name
 from autoshelf.planner.prompts import SYSTEM_PROMPT
 from autoshelf.planner.rate_limit import RateLimiter
+from autoshelf.rules import PlanningRules, render_rules_prompt
 
 
 class PlannerLLM(Protocol):
@@ -141,7 +142,7 @@ class FakeLLM:
 class AnthropicPlannerLLM:
     """Anthropic-backed planner with offline fallback expectations handled by the caller."""
 
-    def __init__(self, config: AppConfig) -> None:
+    def __init__(self, config: AppConfig, rules: PlanningRules | None = None) -> None:
         self._config = config
         from anthropic import Anthropic  # type: ignore[import-not-found]
 
@@ -152,6 +153,7 @@ class AnthropicPlannerLLM:
         )
         self._fallback = FakeLLM()
         self._usage = PlannerUsage()
+        self._rules = rules or PlanningRules()
         self._tool_schema = {
             "type": "object",
             "properties": {
@@ -253,9 +255,13 @@ class AnthropicPlannerLLM:
         self, briefs: list[FileBrief], tree: dict[str, Any], model: str
     ) -> dict[str, Any]:
         guide_text = self._existing_folder_guide()
-        system_text = (
-            SYSTEM_PROMPT if not guide_text else f"{SYSTEM_PROMPT}\n\nExisting guide:\n{guide_text}"
-        )
+        sections = [SYSTEM_PROMPT]
+        if guide_text:
+            sections.append(f"Existing guide:\n{guide_text}")
+        rules_text = render_rules_prompt(self._rules)
+        if rules_text:
+            sections.append(rules_text)
+        system_text = "\n\n".join(sections)
         brief_payload = [brief.model_dump() for brief in briefs]
         return {
             "model": model,
@@ -366,13 +372,15 @@ class AnthropicPlannerLLM:
         )
 
 
-def get_planner_llm(config: AppConfig | None = None) -> PlannerLLM:
+def get_planner_llm(
+    config: AppConfig | None = None, rules: PlanningRules | None = None
+) -> PlannerLLM:
     from autoshelf.planner.providers import load_llm_provider
 
     cfg = config or AppConfig()
     if cfg.llm.provider.lower() == "fake" or not os.environ.get("ANTHROPIC_API_KEY"):
         return FakeLLM()
-    return load_llm_provider(cfg)
+    return load_llm_provider(cfg, rules)
 
 
 def _deep_copy_tree(tree: dict[str, Any]) -> dict[str, Any]:

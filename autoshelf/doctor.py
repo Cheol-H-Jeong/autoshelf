@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from autoshelf.paths import state_dir
+from autoshelf.rules import load_planning_rules, rules_path
 
 
 def run_diagnostics(root: Path | None = None) -> dict[str, object]:
@@ -18,6 +19,15 @@ def run_diagnostics(root: Path | None = None) -> dict[str, object]:
         except Exception:
             deps[name] = "missing"
     target_root = root or Path.cwd()
+    rules_file = rules_path(target_root)
+    rules_status = "missing"
+    if rules_file.exists():
+        try:
+            load_planning_rules(target_root)
+        except Exception:
+            rules_status = "invalid"
+        else:
+            rules_status = "ok"
     checks = {
         "python_ok": sys.version_info >= (3, 11),
         "api_key_configured": bool(os.environ.get("ANTHROPIC_API_KEY")),
@@ -26,6 +36,7 @@ def run_diagnostics(root: Path | None = None) -> dict[str, object]:
         "symlink_supported": _symlink_supported(target_root),
         "pylnk3_available": _module_available("pylnk3") if sys.platform == "win32" else True,
         "ffprobe_available": shutil.which("ffprobe") is not None,
+        "rules_file_status": rules_status,
     }
     return {"checks": checks, "dependencies": deps}
 

@@ -8,11 +8,23 @@ from autoshelf.parsers.base import ParsedContext
 from autoshelf.planner.chunking import FileBrief
 from autoshelf.planner.llm import AnthropicPlannerLLM
 from autoshelf.planner.pipeline import PlannerPipeline
+from autoshelf.rules import load_planning_rules
 from autoshelf.scanner import FileInfo
 
 
 def test_anthropic_payload_uses_tool_schema(monkeypatch, mock_anthropic, tmp_path):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    (tmp_path / ".autoshelfrc.yaml").write_text(
+        """
+version: 1
+pinned_dirs:
+  - Finance/Taxes
+mappings:
+  - glob: "*.invoice.pdf"
+    target: Finance/Invoices
+""".strip(),
+        encoding="utf-8",
+    )
     config = AppConfig(llm=LLMSettings(provider="anthropic"))
     mock_anthropic.responses.append(
         mock_anthropic.make_response(
@@ -28,7 +40,7 @@ def test_anthropic_payload_uses_tool_schema(monkeypatch, mock_anthropic, tmp_pat
             ],
         )
     )
-    llm = AnthropicPlannerLLM(config)
+    llm = AnthropicPlannerLLM(config, load_planning_rules(tmp_path))
     llm.propose(
         {},
         [
@@ -46,6 +58,7 @@ def test_anthropic_payload_uses_tool_schema(monkeypatch, mock_anthropic, tmp_pat
     assert payload["tool_choice"] == {"type": "tool", "name": "emit_plan"}
     assert payload["tools"][0]["name"] == "emit_plan"
     assert payload["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert "Finance/Taxes" in payload["system"][0]["text"]
     assert payload["messages"][0]["content"][0]["text"].startswith("Propose or refine")
 
 

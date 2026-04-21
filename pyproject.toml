@@ -36,6 +36,7 @@ parsers = [
   "Pillow>=10,<12",
 ]
 llm = ["anthropic>=0.51,<1"]
+rules = ["PyYAML>=6,<7"]
 dev = [
   "pytest>=8,<9",
   "ruff>=0.11,<1",
@@ -58,6 +59,7 @@ all = [
   "pylnk3>=0.4,<1",
   "Pillow>=10,<12",
   "anthropic>=0.51,<1",
+  "PyYAML>=6,<7",
   "pytest>=8,<9",
   "ruff>=0.11,<1",
   "pyright>=1.1.390,<2",

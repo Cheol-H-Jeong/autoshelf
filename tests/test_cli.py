@@ -57,3 +57,27 @@ def test_cli_verify_exits_zero_for_clean_tree(tmp_path):
     )
     assert completed.returncode == 0
     assert '"issues": []' in completed.stdout
+
+
+def test_cli_plan_uses_rules_file(tmp_path):
+    (tmp_path / ".autoshelfrc.yaml").write_text(
+        """
+version: 1
+mappings:
+  - glob: "*.invoice.pdf"
+    target: Finance/Invoices
+""".strip(),
+        encoding="utf-8",
+    )
+    (tmp_path / "acme.invoice.pdf").write_text("invoice", encoding="utf-8")
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "autoshelf", "plan", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[1],
+    )
+
+    assert completed.returncode == 0
+    assert "Finance" in completed.stdout
+    assert "Invoices" in completed.stdout

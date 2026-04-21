@@ -10,6 +10,7 @@ from autoshelf.planner.draft import load_draft, save_draft
 from autoshelf.planner.llm import get_planner_llm
 from autoshelf.planner.models import PlanDraft, PlannerAssignment, PlannerUsage
 from autoshelf.planner.validation import validate_and_normalize_tree
+from autoshelf.rules import apply_assignment_rules, load_planning_rules, merge_rule_paths
 from autoshelf.scanner import FileInfo
 
 
@@ -35,13 +36,15 @@ class PlannerPipeline:
         root: Path | None = None,
         resume: bool = False,
     ) -> PlanResult:
+        rules = load_planning_rules(root)
+        self.llm = get_planner_llm(self.config, rules)
         briefs = [self._brief(file_info, contexts) for file_info in files]
         chunks = self._chunk_briefs(briefs)
-        tree: dict[str, object] = {}
+        tree: dict[str, object] = merge_rule_paths({}, rules)
         draft = load_draft(root) if resume and root is not None else None
         start_index = 0
         if draft is not None:
-            tree = draft.tree
+            tree = merge_rule_paths(draft.tree, rules)
             start_index = draft.processed_chunks
         unsure_paths: list[str] = list(draft.unsure_paths) if draft is not None else []
         for index, chunk in enumerate(chunks[start_index:], start=start_index):
@@ -58,11 +61,16 @@ class PlannerPipeline:
                         unsure_paths=sorted(set(unsure_paths)),
                     ),
                 )
-        final_tree = validate_and_normalize_tree(self.llm.finalize(tree, briefs))
+        final_tree = validate_and_normalize_tree(
+            merge_rule_paths(self.llm.finalize(tree, briefs), rules)
+        )
         assignments: list[PlannerAssignment] = []
         for chunk in chunks:
             assignments.extend(self.llm.assign(final_tree, chunk))
-        adjusted = [self._apply_confidence_rules(assignment) for assignment in assignments]
+        adjusted = [
+            self._apply_confidence_rules(assignment)
+            for assignment in apply_assignment_rules(assignments, rules)
+        ]
         result = PlanResult(
             tree=final_tree,
             assignments=adjusted,
