@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib.metadata as importlib_metadata
+import json
 import re
 import shutil
 import subprocess
@@ -37,8 +38,18 @@ class BundleMetadata(BaseModel):
     wheel: str
     launcher: str
     install_script: str
+    bundle_manifest: str = "bundle-manifest.json"
+    bundle_file_count: int = 0
     runtime_distributions: tuple[str, ...] = Field(default_factory=tuple)
     install_verified: bool = False
+
+
+class BundleFileRecord(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    path: str
+    size_bytes: int
+    sha256: str
 
 
 class BuildResult(BaseModel):
@@ -155,8 +166,12 @@ def _stage_bundle(
         install_script="install.sh",
         runtime_distributions=runtime_distributions,
     )
+    metadata_path.write_text(bundle_metadata.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    bundle_manifest_path = _write_bundle_manifest(bundle_root, bundle_metadata.bundle_manifest)
+    bundle_records = _load_bundle_manifest(bundle_manifest_path)
+    updated_metadata = bundle_metadata.model_copy(update={"bundle_file_count": len(bundle_records)})
     metadata_path.write_text(
-        bundle_metadata.model_dump_json(indent=2) + "\n",
+        updated_metadata.model_dump_json(indent=2) + "\n",
         encoding="utf-8",
     )
     return metadata_path
@@ -408,6 +423,45 @@ def _update_install_verification(metadata_path: Path, install_verified: bool) ->
         encoding="utf-8",
     )
     return metadata_path
+
+
+def _write_bundle_manifest(bundle_root: Path, manifest_name: str) -> Path:
+    manifest_path = bundle_root / manifest_name
+    bundle_files = sorted(
+        _iter_bundle_files(bundle_root, manifest_path),
+        key=lambda item: item.as_posix(),
+    )
+    records = [
+        BundleFileRecord(
+            path=path.relative_to(bundle_root).as_posix(),
+            size_bytes=path.stat().st_size,
+            sha256=_sha256(path),
+        )
+        for path in bundle_files
+    ]
+    manifest_path.write_text(
+        json.dumps(
+            {"files": [record.model_dump(mode="json") for record in records]},
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return manifest_path
+
+
+def _load_bundle_manifest(path: Path) -> list[BundleFileRecord]:
+    document = json.loads(path.read_text(encoding="utf-8"))
+    files = document.get("files", [])
+    return [BundleFileRecord.model_validate(record) for record in files]
+
+
+def _iter_bundle_files(bundle_root: Path, manifest_path: Path):
+    for path in bundle_root.rglob("*"):
+        if not path.is_file() or path == manifest_path:
+            continue
+        yield path
 
 
 def _copy_if_present(source: Path, target: Path) -> None:

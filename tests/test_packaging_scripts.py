@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import tarfile
@@ -24,14 +25,24 @@ def test_build_script_creates_linux_bundle(tmp_path):
     assert sha_path.exists()
     with tarfile.open(artifact, "r:gz") as archive:
         names = archive.getnames()
+        manifest_member = archive.extractfile(
+            "autoshelf-1.0.2-linux-x86_64-bundle/bundle-manifest.json"
+        )
+        assert manifest_member is not None
+        manifest = json.loads(manifest_member.read().decode("utf-8"))
     assert "autoshelf-1.0.2-linux-x86_64-bundle/bin/autoshelf" in names
     assert "autoshelf-1.0.2-linux-x86_64-bundle/build-metadata.json" in names
+    assert "autoshelf-1.0.2-linux-x86_64-bundle/bundle-manifest.json" in names
     assert "autoshelf-1.0.2-linux-x86_64-bundle/install.sh" in names
     assert (
         "autoshelf-1.0.2-linux-x86_64-bundle/runtime/site-packages/autoshelf/__init__.py"
         in names
     )
     assert any(name.endswith(".whl") for name in names)
+    manifest_paths = {entry["path"] for entry in manifest["files"]}
+    assert "bin/autoshelf" in manifest_paths
+    assert "build-metadata.json" in manifest_paths
+    assert "install.sh" in manifest_paths
 
 
 def test_build_script_can_verify_installed_bundle(tmp_path):
