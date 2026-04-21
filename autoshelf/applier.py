@@ -24,6 +24,7 @@ from autoshelf.manifest import write_manifests
 from autoshelf.planner.models import PlannerAssignment
 from autoshelf.scanner import _hash_file
 from autoshelf.shortcuts import copy_fallback, create_shortcut
+from autoshelf.targeting import resolve_assignment_target, safe_target_dir
 
 
 @dataclass(slots=True)
@@ -248,42 +249,10 @@ def _transaction_record(
     )
 
 
-def _safe_target_dir(root: Path, parts: list[str]) -> Path:
-    target = root.joinpath(*parts)
-    resolved_root = root.resolve()
-    resolved_target = target.resolve(strict=False)
-    if resolved_target != resolved_root and resolved_root not in resolved_target.parents:
-        raise ValueError("target directory escapes the selected root")
-    return target
-
-
-def _resolve_target(target: Path, conflict_policy: str) -> Path:
-    if conflict_policy == "overwrite":
-        return target
-    if conflict_policy == "skip" and target.exists():
-        return target
-    if conflict_policy == "append-counter":
-        return _dedupe_target(target)
-    return target
-
-
-def _dedupe_target(target: Path) -> Path:
-    if not target.exists():
-        return target
-    counter = 2
-    while True:
-        candidate = target.with_name(f"{target.stem} ({counter}){target.suffix}")
-        if not candidate.exists():
-            return candidate
-        counter += 1
-
-
 def _target_for_entry(root: Path, entry: RunPlanEntry, conflict_policy: str) -> Path:
     if entry.target_path:
         return root / entry.target_path
-    target_dir = _safe_target_dir(root, entry.primary_dir)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    return _resolve_target(target_dir / Path(entry.path).name, conflict_policy)
+    return resolve_assignment_target(root, entry.path, entry.primary_dir, conflict_policy)
 
 
 def _move_file(source: Path, target: Path, staging_dir: Path) -> Path:
@@ -319,7 +288,7 @@ def _reconcile_completed_move(root: Path, entry: RunPlanEntry, target: Path) -> 
 
 
 def _create_entry_shortcut(root: Path, final_target: Path, extra: list[str]) -> Path:
-    shortcut_dir = _safe_target_dir(root, extra)
+    shortcut_dir = safe_target_dir(root, extra)
     shortcut_dir.mkdir(parents=True, exist_ok=True)
     shortcut_name = f"{final_target.name}.lnk" if _windows_path() else final_target.name
     shortcut_path = shortcut_dir / shortcut_name
