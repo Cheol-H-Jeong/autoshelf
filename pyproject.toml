@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autoshelf"
-version = "1.0.30"
+version = "1.0.31"
 description = "Offline-first folder organizer with optional Anthropic planning and PySide6 GUI"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.31
+
+- Added deterministic near-duplicate text detection using local shingled Jaccard matching, so autoshelf can identify lightly edited versions of the same document without any new network dependency.
+- Fed near-duplicate group metadata into planner briefs and Anthropic prompts, making version relationships visible during classification and review instead of treating each variant as an isolated file.
+- Taught the offline FakeLLM path to use the strongest near-duplicate sibling as a classification anchor for weaker variants, and documented the behavior for operators in the README and user guide.
+
 ## v1.0.30
 
 - Enriched Anthropic planner briefs into compact natural-language records that now carry the immediate parent folder, full ancestor chain, and a derived `meaningful_parent_hint`, so customer and project anchors survive classification more reliably than raw filename-only prompts.
