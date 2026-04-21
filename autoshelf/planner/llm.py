@@ -10,6 +10,7 @@ from loguru import logger
 
 from autoshelf.config import AppConfig
 from autoshelf.planner.chunking import FileBrief
+from autoshelf.planner.contextual import contextual_primary_dir
 from autoshelf.planner.models import PlannerAssignment, PlannerResponse, PlannerUsage
 from autoshelf.planner.naming import normalize_folder_name
 from autoshelf.planner.prompts import FEW_SHOT_PROMPT, SYSTEM_PROMPT
@@ -89,17 +90,24 @@ class FakeLLM:
     ) -> list[PlannerAssignment]:
         corpus_english = _corpus_mostly_english(briefs)
         doc_folder = "Documents" if corpus_english else "문서"
+        base_primaries = [
+            contextual_primary_dir(
+                brief,
+                default_top_level=self._folder_for_extension(brief.extension, corpus_english),
+                corpus_english=corpus_english,
+            )
+            for brief in briefs
+        ]
         assignments: list[PlannerAssignment] = []
-        sibling_years: dict[str, set[str]] = defaultdict(set)
-        for brief in briefs:
-            top_level = self._folder_for_extension(brief.extension, corpus_english)
+        sibling_years: dict[tuple[str, ...], set[str]] = defaultdict(set)
+        for brief, base_primary in zip(briefs, base_primaries, strict=False):
             year = datetime.fromtimestamp(brief.mtime).strftime("%Y")
-            sibling_years[top_level].add(year)
-        for brief in briefs:
-            top_level = self._folder_for_extension(brief.extension, corpus_english)
+            sibling_years[tuple(base_primary)].add(year)
+        for brief, base_primary in zip(briefs, base_primaries, strict=False):
             year = datetime.fromtimestamp(brief.mtime).strftime("%Y")
-            primary = [top_level]
-            if len(sibling_years[top_level]) > 1:
+            top_level = base_primary[0]
+            primary = list(base_primary)
+            if len(primary) < 3 and len(sibling_years[tuple(base_primary)]) > 1:
                 primary.append(year)
             also: list[list[str]] = []
             if brief.extension in {"md", "txt", "pdf", "docx", "hwp"} and top_level != doc_folder:

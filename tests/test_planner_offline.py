@@ -147,6 +147,80 @@ mappings:
     assert result.assignments[0].also_relevant == [["Documents"]]
 
 
+def test_fake_llm_uses_meaningful_parent_folder_for_documents(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    config = AppConfig()
+    mtime = datetime(2024, 5, 1).timestamp()
+    file_info = FileInfo(
+        absolute_path=tmp_path / "clients" / "acme" / "proposal.txt",
+        relative_path=Path("clients/acme/proposal.txt"),
+        parent_name="acme",
+        filename="proposal.txt",
+        stem="proposal",
+        extension="txt",
+        size_bytes=3,
+        mtime=mtime,
+        ctime=mtime,
+        file_hash="abc",
+    )
+    contexts = {
+        file_info.absolute_path: ParsedContext("Proposal", "Statement of work for renewal", {})
+    }
+
+    result = PlannerPipeline(config).plan([file_info], contexts)
+
+    assert result.assignments[0].primary_dir == ["Documents", "acme"]
+
+
+def test_fake_llm_routes_finance_documents_by_context(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    config = AppConfig()
+    mtime = datetime(2024, 5, 1).timestamp()
+    file_info = FileInfo(
+        absolute_path=tmp_path / "receipts" / "april.invoice.pdf",
+        relative_path=Path("receipts/april.invoice.pdf"),
+        parent_name="receipts",
+        filename="april.invoice.pdf",
+        stem="april.invoice",
+        extension="pdf",
+        size_bytes=3,
+        mtime=mtime,
+        ctime=mtime,
+        file_hash="abc",
+    )
+    contexts = {
+        file_info.absolute_path: ParsedContext("Invoice", "payment due for April services", {})
+    }
+
+    result = PlannerPipeline(config).plan([file_info], contexts)
+
+    assert result.assignments[0].primary_dir == ["Finance", "Invoices"]
+    assert result.assignments[0].also_relevant == [["Documents"]]
+
+
+def test_fake_llm_routes_screenshots_into_named_image_bucket(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    config = AppConfig()
+    mtime = datetime(2024, 5, 1).timestamp()
+    file_info = FileInfo(
+        absolute_path=tmp_path / "captures" / "Screenshot 2024-05-01.png",
+        relative_path=Path("captures/Screenshot 2024-05-01.png"),
+        parent_name="captures",
+        filename="Screenshot 2024-05-01.png",
+        stem="Screenshot 2024-05-01",
+        extension="png",
+        size_bytes=3,
+        mtime=mtime,
+        ctime=mtime,
+        file_hash="abc",
+    )
+    contexts = {file_info.absolute_path: ParsedContext("Screenshot", "Settings page", {})}
+
+    result = PlannerPipeline(config).plan([file_info], contexts)
+
+    assert result.assignments[0].primary_dir == ["Images", "Screenshots"]
+
+
 def test_brief_summary_includes_parent_folder_context():
     brief = FileBrief(
         path="inbox/client-a/proposal.txt",
