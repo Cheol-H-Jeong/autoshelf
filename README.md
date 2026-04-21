@@ -11,6 +11,8 @@
 - PySide6 desktop GUI with saved light/dark theme support, rationale-rich review previews, and dedicated Home, Review, Apply, History, and Settings tabs.
 - Korean and English UI catalogs.
 
+Operator documentation lives in [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md).
+
 ## Install
 
 ### Linux
@@ -98,8 +100,12 @@ version: 1
 pinned_dirs:
   - Finance/Taxes
   - Documents/Receipts
+exclude_globs:
+  - Inbox/**
+  - "*.tmp"
 mappings:
   - glob: "*.invoice.pdf"
+    priority: 10
     target: Finance/Invoices
     also_relevant:
       - Documents
@@ -107,7 +113,7 @@ mappings:
     target: Images/Screenshots
 ```
 
-Run `python -m autoshelf doctor /path/to/root` to confirm the rules file parses cleanly.
+`exclude_globs` removes matching files from scan, plan, preview, and apply. When multiple mapping rules overlap, the highest `priority` wins. Run `python -m autoshelf doctor /path/to/root` to confirm the rules file parses cleanly and to see the parsed rule counts.
 
 ## GUI
 
