@@ -7,6 +7,7 @@ from autoshelf.config import AppConfig
 from autoshelf.parsers.base import ParsedContext
 from autoshelf.planner.naming import validate_folder_name
 from autoshelf.planner.pipeline import PlannerPipeline
+from autoshelf.planner.draft import draft_path
 from autoshelf.scanner import FileInfo
 
 
@@ -74,3 +75,32 @@ def test_fake_llm_picks_one_language_for_whole_corpus(tmp_path, monkeypatch):
     primaries = {a.primary_dir[0] for a in result.assignments}
     assert len(primaries) == 1, f"expected one top-level folder, got {primaries}"
     assert primaries & {"Documents", "문서"}
+
+
+def test_resume_from_draft_skips_completed_chunks(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    config = AppConfig(max_chunk_tokens=5)
+    mtime = datetime(2024, 5, 1).timestamp()
+    files = []
+    contexts = {}
+    for index in range(3):
+        file_info = FileInfo(
+            absolute_path=tmp_path / f"note-{index}.txt",
+            relative_path=Path(f"note-{index}.txt"),
+            parent_name="",
+            filename=f"note-{index}.txt",
+            stem=f"note-{index}",
+            extension="txt",
+            size_bytes=1,
+            mtime=mtime,
+            ctime=mtime,
+            file_hash=str(index),
+        )
+        files.append(file_info)
+        contexts[file_info.absolute_path] = ParsedContext(f"Title {index}", "english content", {})
+    pipeline = PlannerPipeline(config)
+    result = pipeline.plan(files, contexts, root=tmp_path)
+    assert draft_path(tmp_path).exists()
+    resumed = PlannerPipeline(config).plan(files, contexts, root=tmp_path, resume=True)
+    assert resumed.tree == result.tree
+    assert len(resumed.assignments) == len(result.assignments)

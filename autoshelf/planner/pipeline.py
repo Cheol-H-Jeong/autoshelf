@@ -6,8 +6,10 @@ from pathlib import Path
 from autoshelf.config import AppConfig
 from autoshelf.parsers.base import ParsedContext
 from autoshelf.planner.chunking import FileBrief, chunk_briefs
-from autoshelf.planner.llm import PlannerAssignment, get_planner_llm
-from autoshelf.planner.naming import validate_folder_name, validate_sibling_names
+from autoshelf.planner.draft import load_draft, save_draft
+from autoshelf.planner.llm import get_planner_llm
+from autoshelf.planner.models import PlanDraft, PlannerAssignment, PlannerUsage
+from autoshelf.planner.validation import validate_and_normalize_tree
 from autoshelf.scanner import FileInfo
 
 
@@ -15,6 +17,8 @@ from autoshelf.scanner import FileInfo
 class PlanResult:
     tree: dict[str, object]
     assignments: list[PlannerAssignment]
+    unsure_paths: list[str]
+    usage: PlannerUsage
 
 
 class PlannerPipeline:
@@ -24,19 +28,58 @@ class PlannerPipeline:
         self.config = config or AppConfig()
         self.llm = get_planner_llm(self.config)
 
-    def plan(self, files: list[FileInfo], contexts: dict[Path, ParsedContext]) -> PlanResult:
+    def plan(
+        self,
+        files: list[FileInfo],
+        contexts: dict[Path, ParsedContext],
+        root: Path | None = None,
+        resume: bool = False,
+    ) -> PlanResult:
         briefs = [self._brief(file_info, contexts) for file_info in files]
-        chunks = chunk_briefs(briefs, self.config.max_chunk_tokens)
+        chunks = self._chunk_briefs(briefs)
         tree: dict[str, object] = {}
-        for chunk in chunks:
+        draft = load_draft(root) if resume and root is not None else None
+        start_index = 0
+        if draft is not None:
+            tree = draft.tree
+            start_index = draft.processed_chunks
+        unsure_paths: list[str] = list(draft.unsure_paths) if draft is not None else []
+        for index, chunk in enumerate(chunks[start_index:], start=start_index):
             response = self.llm.propose(tree, chunk)
             tree = response.tree
-        final_tree = self.llm.finalize(tree, briefs)
-        _validate_tree(final_tree)
-        assignments = []
+            unsure_paths.extend(response.unsure_paths)
+            if root is not None:
+                save_draft(
+                    root,
+                    PlanDraft(
+                        processed_chunks=index + 1,
+                        tree=tree,
+                        assignments=[],
+                        unsure_paths=sorted(set(unsure_paths)),
+                    ),
+                )
+        final_tree = validate_and_normalize_tree(self.llm.finalize(tree, briefs))
+        assignments: list[PlannerAssignment] = []
         for chunk in chunks:
             assignments.extend(self.llm.assign(final_tree, chunk))
-        return PlanResult(tree=final_tree, assignments=assignments)
+        adjusted = [self._apply_confidence_rules(assignment) for assignment in assignments]
+        result = PlanResult(
+            tree=final_tree,
+            assignments=adjusted,
+            unsure_paths=sorted(set(unsure_paths)),
+            usage=self.llm.usage,
+        )
+        if root is not None:
+            save_draft(
+                root,
+                PlanDraft(
+                    processed_chunks=len(chunks),
+                    tree=final_tree,
+                    assignments=adjusted,
+                    unsure_paths=result.unsure_paths,
+                ),
+            )
+        return result
 
     def _brief(self, file_info: FileInfo, contexts: dict[Path, ParsedContext]) -> FileBrief:
         context = contexts.get(file_info.absolute_path, ParsedContext(file_info.stem, "", {}))
@@ -49,10 +92,25 @@ class PlannerPipeline:
             head_text=context.head_text,
         )
 
+    def _chunk_briefs(self, briefs: list[FileBrief]) -> list[list[FileBrief]]:
+        chunks: list[list[FileBrief]] = []
+        current: list[FileBrief] = []
+        current_tokens = 0
+        for brief in briefs:
+            brief_tokens = self.llm.count_tokens([brief])
+            if current and current_tokens + brief_tokens > self.config.max_chunk_tokens:
+                chunks.append(current)
+                current = []
+                current_tokens = 0
+            current.append(brief)
+            current_tokens += brief_tokens
+        if current:
+            chunks.append(current)
+        return chunks or chunk_briefs(briefs, self.config.max_chunk_tokens)
 
-def _validate_tree(tree: dict[str, object]) -> None:
-    siblings = list(tree.keys())
-    validate_sibling_names(siblings)
-    for name, child in tree.items():
-        validate_folder_name(name)
-        _validate_tree(child)
+    def _apply_confidence_rules(self, assignment: PlannerAssignment) -> PlannerAssignment:
+        if assignment.confidence < 0.3:
+            assignment.primary_dir = [".autoshelf", "quarantine"]
+        if assignment.confidence < 0.6 and assignment.also_relevant:
+            assignment.also_relevant = assignment.also_relevant[:1]
+        return assignment

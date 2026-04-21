@@ -1,30 +1,20 @@
 from __future__ import annotations
 
 import os
+import time
 from collections import defaultdict
-from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Protocol
+
+from loguru import logger
 
 from autoshelf.config import AppConfig
 from autoshelf.planner.chunking import FileBrief
 from autoshelf.planner.naming import normalize_folder_name
+from autoshelf.planner.models import PlannerAssignment, PlannerResponse, PlannerUsage
 from autoshelf.planner.prompts import SYSTEM_PROMPT
-
-
-@dataclass(slots=True)
-class PlannerAssignment:
-    path: str
-    primary_dir: list[str]
-    also_relevant: list[list[str]]
-    summary: str
-
-
-@dataclass(slots=True)
-class PlannerResponse:
-    tree: dict[str, Any]
-    assignments: list[PlannerAssignment]
-    unsure_paths: list[str]
+from autoshelf.planner.rate_limit import RateLimiter
 
 
 class PlannerLLM(Protocol):
@@ -39,6 +29,11 @@ class PlannerLLM(Protocol):
         final_tree: dict[str, Any],
         briefs: list[FileBrief],
     ) -> list[PlannerAssignment]: ...
+
+    @property
+    def usage(self) -> PlannerUsage: ...
+
+    def count_tokens(self, briefs: list[FileBrief]) -> int: ...
 
 
 class FakeLLM:
@@ -61,6 +56,9 @@ class FakeLLM:
         "jpg": "이미지",
         "jpeg": "이미지",
     }
+
+    def __init__(self) -> None:
+        self._usage = PlannerUsage()
 
     def propose(self, draft_tree: dict[str, Any], briefs: list[FileBrief]) -> PlannerResponse:
         tree = _deep_copy_tree(draft_tree)
@@ -111,9 +109,19 @@ class FakeLLM:
                     primary_dir=primary,
                     also_relevant=also[:2],
                     summary=brief.head_text[:80] or brief.title or brief.filename,
+                    confidence=0.92,
                 )
             )
         return assignments
+
+    @property
+    def usage(self) -> PlannerUsage:
+        return self._usage
+
+    def count_tokens(self, briefs: list[FileBrief]) -> int:
+        from autoshelf.planner.chunking import count_tokens
+
+        return count_tokens(briefs)
 
     def _folder_for_extension(self, extension: str, corpus_english: bool) -> str:
         ext = extension.lower()
@@ -138,47 +146,207 @@ class AnthropicPlannerLLM:
         from anthropic import Anthropic  # type: ignore[import-not-found]
 
         self._client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        self._rate_limiter = RateLimiter(
+            requests_per_second=config.llm.requests_per_second,
+            concurrency=config.llm.concurrency,
+        )
+        self._fallback = FakeLLM()
+        self._usage = PlannerUsage()
+        self._tool_schema = {
+            "type": "object",
+            "properties": {
+                "tree": {"type": "object"},
+                "assignments": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string"},
+                            "primary_dir": {"type": "array", "items": {"type": "string"}},
+                            "also_relevant": {
+                                "type": "array",
+                                "items": {"type": "array", "items": {"type": "string"}},
+                            },
+                            "summary": {"type": "string"},
+                            "confidence": {"type": "number"},
+                        },
+                        "required": [
+                            "path",
+                            "primary_dir",
+                            "also_relevant",
+                            "summary",
+                            "confidence",
+                        ],
+                    },
+                },
+                "unsure_paths": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["tree", "assignments", "unsure_paths"],
+        }
 
     def propose(self, draft_tree: dict[str, Any], briefs: list[FileBrief]) -> PlannerResponse:
-        _ = self._messages_payload(briefs, draft_tree, self._config.llm.classification_model)
-        return FakeLLM().propose(draft_tree, briefs)
+        prompt = "Propose or refine the folder tree and tentative assignments for this chunk."
+        fallback = lambda: self._fallback.propose(draft_tree, briefs)
+        return self._request(
+            model=self._config.llm.planning_model,
+            draft_tree=draft_tree,
+            briefs=briefs,
+            prompt=prompt,
+            fallback=fallback,
+        )
 
     def finalize(self, draft_tree: dict[str, Any], briefs: list[FileBrief]) -> dict[str, Any]:
-        _ = self._messages_payload(briefs, draft_tree, self._config.llm.planning_model)
-        return FakeLLM().finalize(draft_tree, briefs)
+        prompt = "Finalize the folder tree. Improve naming, merge duplicates, and keep depth <= 3."
+        fallback = lambda: PlannerResponse(
+            tree=self._fallback.finalize(draft_tree, briefs),
+            assignments=[],
+            unsure_paths=[],
+        )
+        response = self._request(
+            model=self._config.llm.review_model,
+            draft_tree=draft_tree,
+            briefs=briefs,
+            prompt=prompt,
+            fallback=fallback,
+        )
+        return response.tree
 
     def assign(
         self,
         final_tree: dict[str, Any],
         briefs: list[FileBrief],
     ) -> list[PlannerAssignment]:
-        _ = self._messages_payload(briefs, final_tree, self._config.llm.classification_model)
-        return FakeLLM().assign(final_tree, briefs)
+        prompt = "Assign every file to the final folder tree. Return primary_dir and also_relevant."
+        fallback = lambda: PlannerResponse(
+            tree=final_tree,
+            assignments=self._fallback.assign(final_tree, briefs),
+            unsure_paths=[],
+        )
+        response = self._request(
+            model=self._config.llm.classification_model,
+            draft_tree=final_tree,
+            briefs=briefs,
+            prompt=prompt,
+            fallback=fallback,
+        )
+        return response.assignments
 
-    def _messages_payload(
-        self, briefs: list[FileBrief], tree: dict[str, Any], model: str
-    ) -> dict[str, Any]:
+    @property
+    def usage(self) -> PlannerUsage:
+        return self._usage
+
+    def count_tokens(self, briefs: list[FileBrief]) -> int:
+        from autoshelf.planner.chunking import count_tokens
+
+        return count_tokens(briefs, counter=self._client)
+
+    def _messages_payload(self, briefs: list[FileBrief], tree: dict[str, Any], model: str) -> dict[str, Any]:
+        guide_text = self._existing_folder_guide()
+        system_text = SYSTEM_PROMPT if not guide_text else f"{SYSTEM_PROMPT}\n\nExisting guide:\n{guide_text}"
         return {
             "model": model,
+            "max_tokens": 4096,
             "system": [
                 {
                     "type": "text",
-                    "text": SYSTEM_PROMPT,
+                    "text": system_text,
                     "cache_control": {"type": "ephemeral"},
                 }
             ],
+            "tools": [
+                {
+                    "name": "emit_plan",
+                    "description": "Emit the current autoshelf plan as structured JSON.",
+                    "input_schema": self._tool_schema,
+                }
+            ],
+            "tool_choice": {"type": "tool", "name": "emit_plan"},
             "messages": [
                 {
                     "role": "user",
                     "content": [
                         {
                             "type": "text",
-                            "text": f"tree={tree}\nbriefs={[brief.summary for brief in briefs]}",
+                            "text": f"tree={tree}\nbriefs={[brief.model_dump() for brief in briefs]}",
                         }
                     ],
                 }
             ],
         }
+
+    def _request(
+        self,
+        model: str,
+        draft_tree: dict[str, Any],
+        briefs: list[FileBrief],
+        prompt: str,
+        fallback,
+    ) -> PlannerResponse:
+        payload = self._messages_payload(briefs, draft_tree, model)
+        payload["messages"][0]["content"][0]["text"] = (
+            f"{prompt}\n\n"
+            f"{payload['messages'][0]['content'][0]['text']}"
+        )
+        errors = self._retryable_errors()
+        for attempt in range(self._config.llm.max_retries + 1):
+            try:
+                with self._rate_limiter:
+                    response = self._client.messages.create(**payload)
+                parsed = self._parse_response(response)
+                usage = getattr(response, "usage", None)
+                self._usage.add_usage(
+                    input_tokens=getattr(usage, "input_tokens", 0) or 0,
+                    output_tokens=getattr(usage, "output_tokens", 0) or 0,
+                    cache_creation_input_tokens=getattr(usage, "cache_creation_input_tokens", 0) or 0,
+                    cache_read_input_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
+                )
+                logger.bind(component="planner").info(
+                    "anthropic call model={} in={} out={} cache_create={} cache_read={}",
+                    model,
+                    getattr(usage, "input_tokens", 0) or 0,
+                    getattr(usage, "output_tokens", 0) or 0,
+                    getattr(usage, "cache_creation_input_tokens", 0) or 0,
+                    getattr(usage, "cache_read_input_tokens", 0) or 0,
+                )
+                return parsed
+            except errors as exc:
+                if attempt >= self._config.llm.max_retries:
+                    break
+                time.sleep(min(8.0, 0.5 * (2**attempt)))
+                logger.bind(component="planner").warning(
+                    "retryable anthropic error on attempt {}: {}",
+                    attempt + 1,
+                    exc,
+                )
+            except Exception:
+                break
+        result = fallback()
+        self._usage.fallback_chunks += 1
+        for assignment in result.assignments:
+            assignment.fallback = True
+        return result
+
+    def _parse_response(self, response: Any) -> PlannerResponse:
+        for block in getattr(response, "content", []):
+            if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == "emit_plan":
+                return PlannerResponse.model_validate(getattr(block, "input"))
+        raise ValueError("Anthropic response did not include emit_plan tool_use output")
+
+    def _existing_folder_guide(self) -> str:
+        candidates = [Path.cwd() / "FOLDER_GUIDE.md"]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate.read_text(encoding="utf-8")
+        return ""
+
+    def _retryable_errors(self) -> tuple[type[BaseException], ...]:
+        import anthropic  # type: ignore[import-not-found]
+
+        return (
+            anthropic.RateLimitError,
+            anthropic.InternalServerError,
+            anthropic.APIConnectionError,
+        )
 
 
 def get_planner_llm(config: AppConfig | None = None) -> PlannerLLM:
@@ -197,7 +365,7 @@ def get_planner_llm(config: AppConfig | None = None) -> PlannerLLM:
 def _deep_copy_tree(tree: dict[str, Any]) -> dict[str, Any]:
     copied: dict[str, Any] = {}
     for key, value in tree.items():
-        copied[key] = _deep_copy_tree(value)
+        copied[key] = _deep_copy_tree(value) if isinstance(value, dict) else {}
     return copied
 
 

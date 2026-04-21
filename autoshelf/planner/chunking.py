@@ -1,24 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from pathlib import Path
 
+from autoshelf.planner.models import FileBriefModel
 
-@dataclass(slots=True)
-class FileBrief:
-    path: str
-    filename: str
-    extension: str
-    mtime: float
-    title: str
-    head_text: str
-
-    @property
-    def summary(self) -> str:
-        return (
-            f"{self.filename} | ext={self.extension} | mtime={int(self.mtime)} | "
-            f"title={self.title} | excerpt={self.head_text[:180]}"
-        )[:300]
+FileBrief = FileBriefModel
 
 
 def chunk_briefs(briefs: Iterable[FileBrief], max_tokens: int) -> list[list[FileBrief]]:
@@ -36,3 +23,36 @@ def chunk_briefs(briefs: Iterable[FileBrief], max_tokens: int) -> list[list[File
     if current:
         chunks.append(current)
     return chunks
+
+
+def count_tokens(briefs: Iterable[FileBrief], counter: object | None = None) -> int:
+    text = "\n".join(brief.summary for brief in briefs)
+    if not text:
+        return 0
+    if counter is not None:
+        count_tokens_fn = getattr(counter, "count_tokens", None)
+        if callable(count_tokens_fn):
+            try:
+                result = count_tokens_fn(text)
+                if isinstance(result, int):
+                    return result
+                output_tokens = getattr(result, "input_tokens", None)
+                if isinstance(output_tokens, int):
+                    return output_tokens
+            except Exception:
+                pass
+        messages = getattr(counter, "messages", None)
+        nested_count = getattr(messages, "count_tokens", None)
+        if callable(nested_count):
+            try:
+                result = nested_count(model="unused", messages=[{"role": "user", "content": text}])
+                input_tokens = getattr(result, "input_tokens", None)
+                if isinstance(input_tokens, int):
+                    return input_tokens
+            except Exception:
+                pass
+    return max(1, int(len(text) / 3.5))
+
+
+def brief_path_name(path: str) -> str:
+    return Path(path).name

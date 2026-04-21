@@ -4,19 +4,28 @@ import os
 import sys
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class LLMSettings(BaseModel):
     """LLM provider and model settings."""
 
+    model_config = ConfigDict(extra="forbid")
+
     provider: str = "auto"
     classification_model: str = "claude-haiku-4-5"
     planning_model: str = "claude-sonnet-4-6"
+    review_model: str = "claude-sonnet-4-6"
+    requests_per_second: int = 2
+    concurrency: int = 3
+    max_retries: int = 4
+    prompt_cache_enabled: bool = True
 
 
 class AppConfig(BaseModel):
     """Autoshelf configuration."""
+
+    model_config = ConfigDict(extra="forbid")
 
     exclude: list[str] = Field(
         default_factory=lambda: [".git", "node_modules", "__pycache__", ".venv"]
@@ -24,7 +33,10 @@ class AppConfig(BaseModel):
     include_dotfiles: bool = False
     max_head_chars: int = 2000
     max_chunk_tokens: int = 20_000
+    dry_run_default: bool = True
+    theme: str = "system"
     language_preference: str = "auto"
+    recent_roots: list[str] = Field(default_factory=list)
     llm: LLMSettings = Field(default_factory=LLMSettings)
 
     @classmethod
