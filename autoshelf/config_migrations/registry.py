@@ -7,7 +7,7 @@ from loguru import logger
 
 from autoshelf.config_migrations.models import MigrationResult, MigrationStep
 
-LATEST_CONFIG_VERSION = 1
+LATEST_CONFIG_VERSION = 2
 
 MigrationFunc = Callable[[dict[str, Any]], dict[str, Any]]
 
@@ -95,6 +95,37 @@ def _migrate_to_v1(data: dict[str, Any]) -> dict[str, Any]:
     return migrated
 
 
+@_register(2, "Add planner reliability defaults for retries and circuit breaking")
+def _migrate_to_v2(data: dict[str, Any]) -> dict[str, Any]:
+    migrated = dict(data)
+    llm = migrated.get("llm")
+    llm_payload = dict(llm) if isinstance(llm, dict) else {}
+    llm_payload["retry_base_delay_ms"] = _normalize_positive_int(
+        llm_payload.get("retry_base_delay_ms"),
+        fallback=500,
+    )
+    llm_payload["retry_max_delay_ms"] = _normalize_positive_int(
+        llm_payload.get("retry_max_delay_ms"),
+        fallback=8_000,
+    )
+    llm_payload["retry_jitter_ms"] = _normalize_non_negative_int(
+        llm_payload.get("retry_jitter_ms"),
+        fallback=250,
+    )
+    llm_payload["circuit_breaker_threshold"] = _normalize_positive_int(
+        llm_payload.get("circuit_breaker_threshold"),
+        fallback=3,
+    )
+    llm_payload["circuit_breaker_cooldown_seconds"] = _normalize_positive_int(
+        llm_payload.get("circuit_breaker_cooldown_seconds"),
+        fallback=30,
+    )
+    if llm_payload["retry_max_delay_ms"] < llm_payload["retry_base_delay_ms"]:
+        llm_payload["retry_max_delay_ms"] = llm_payload["retry_base_delay_ms"]
+    migrated["llm"] = llm_payload
+    return migrated
+
+
 def _normalize_string_list(value: object, default: list[str]) -> list[str]:
     if not isinstance(value, list):
         return list(default)
@@ -127,6 +158,17 @@ def _normalize_positive_int(value: object, fallback: int) -> int:
     if isinstance(value, str) and value.isdigit():
         parsed = int(value)
         return parsed if parsed > 0 else fallback
+    return fallback
+
+
+def _normalize_non_negative_int(value: object, fallback: int) -> int:
+    if isinstance(value, bool):
+        return fallback
+    if isinstance(value, int):
+        return value if value >= 0 else fallback
+    if isinstance(value, str) and value.isdigit():
+        parsed = int(value)
+        return parsed if parsed >= 0 else fallback
     return fallback
 
 

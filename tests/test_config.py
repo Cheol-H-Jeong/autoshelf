@@ -33,23 +33,35 @@ prompt_cache_enabled = "off"
     assert config.max_head_chars == 4096
     assert config.max_chunk_tokens == 20_000
     assert config.llm.prompt_cache_enabled is False
+    assert config.llm.retry_base_delay_ms == 500
+    assert config.llm.retry_max_delay_ms == 8000
+    assert config.llm.retry_jitter_ms == 250
+    assert config.llm.circuit_breaker_threshold == 3
+    assert config.llm.circuit_breaker_cooldown_seconds == 30
 
 
 def test_migrate_config_data_is_idempotent():
     migrated = migrate_config_data(
         {
-            "schema_version": 1,
+            "schema_version": LATEST_CONFIG_VERSION,
             "exclude": [".git"],
             "theme": "dark",
             "language_preference": "en",
             "recent_roots": ["/tmp/downloads"],
             "max_head_chars": 1024,
             "max_chunk_tokens": 8192,
-            "llm": {"prompt_cache_enabled": True},
+            "llm": {
+                "prompt_cache_enabled": True,
+                "retry_base_delay_ms": 500,
+                "retry_max_delay_ms": 8000,
+                "retry_jitter_ms": 250,
+                "circuit_breaker_threshold": 3,
+                "circuit_breaker_cooldown_seconds": 30,
+            },
         }
     )
 
-    assert migrated.from_version == 1
-    assert migrated.to_version == 1
+    assert migrated.from_version == LATEST_CONFIG_VERSION
+    assert migrated.to_version == LATEST_CONFIG_VERSION
     assert migrated.applied_versions == []
     assert migrated.data["theme"] == "dark"

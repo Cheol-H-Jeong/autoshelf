@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from autoshelf.config_migrations import LATEST_CONFIG_VERSION, migrate_config_data
 from autoshelf.paths import config_dir
@@ -17,10 +17,21 @@ class LLMSettings(BaseModel):
     classification_model: str = "claude-haiku-4-5"
     planning_model: str = "claude-sonnet-4-6"
     review_model: str = "claude-sonnet-4-6"
-    requests_per_second: int = 2
-    concurrency: int = 3
-    max_retries: int = 4
+    requests_per_second: int = Field(default=2, ge=1)
+    concurrency: int = Field(default=3, ge=1)
+    max_retries: int = Field(default=4, ge=0)
     prompt_cache_enabled: bool = True
+    retry_base_delay_ms: int = Field(default=500, ge=1)
+    retry_max_delay_ms: int = Field(default=8000, ge=1)
+    retry_jitter_ms: int = Field(default=250, ge=0)
+    circuit_breaker_threshold: int = Field(default=3, ge=1)
+    circuit_breaker_cooldown_seconds: int = Field(default=30, ge=1)
+
+    @model_validator(mode="after")
+    def _normalize_retry_bounds(self) -> LLMSettings:
+        if self.retry_max_delay_ms < self.retry_base_delay_ms:
+            self.retry_max_delay_ms = self.retry_base_delay_ms
+        return self
 
 
 class AppConfig(BaseModel):
