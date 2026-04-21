@@ -45,3 +45,25 @@ def test_build_preview_dedupes_primary_targets_like_apply(tmp_path):
     preview_root = preview_dir(tmp_path) / "Docs"
     assert (preview_root / "report.txt").is_symlink()
     assert (preview_root / "report (2).txt").is_symlink()
+
+
+def test_build_preview_collapses_duplicate_content_to_canonical_preview_target(tmp_path):
+    first = tmp_path / "incoming" / "draft.txt"
+    second = tmp_path / "copies" / "draft-copy.txt"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_text("hello", encoding="utf-8")
+    second.write_text("hello", encoding="utf-8")
+    assignments = [
+        PlannerAssignment(path="incoming/draft.txt", primary_dir=["Docs"], summary="one"),
+        PlannerAssignment(path="copies/draft-copy.txt", primary_dir=["Archive"], summary="two"),
+    ]
+
+    build_preview(tmp_path, assignments)
+
+    canonical = preview_dir(tmp_path) / "Docs" / "draft.txt"
+    duplicate = preview_dir(tmp_path) / "Archive" / "draft-copy.txt"
+    assert canonical.is_symlink()
+    assert duplicate.is_symlink()
+    assert canonical.resolve() == first.resolve()
+    assert duplicate.resolve() == canonical.resolve()

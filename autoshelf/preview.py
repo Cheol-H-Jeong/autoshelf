@@ -9,6 +9,7 @@ from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
 
 from autoshelf.planner.models import PlannerAssignment
+from autoshelf.scanner import _hash_file
 from autoshelf.targeting import resolve_assignment_target, safe_target_dir
 
 
@@ -46,6 +47,7 @@ def build_preview(
     temp_destination = destination.parent / f".preview-{uuid.uuid4().hex}.tmp"
     occupied_targets: set[Path] = set()
     primary_preview_paths: dict[str, Path] = {}
+    canonical_preview_paths: dict[str, Path] = {}
     links: list[PreviewLink] = []
 
     if temp_destination.exists():
@@ -66,7 +68,10 @@ def build_preview(
             )
             occupied_targets.add(final_target)
             primary_link = temp_destination / final_target.relative_to(resolved_root)
-            _create_preview_link(source, primary_link)
+            file_hash = _hash_file(source)
+            canonical_link = canonical_preview_paths.get(file_hash)
+            _create_preview_link(canonical_link or source, primary_link)
+            canonical_preview_paths.setdefault(file_hash, primary_link)
             primary_preview_paths[assignment.path] = primary_link
             links.append(
                 PreviewLink(
