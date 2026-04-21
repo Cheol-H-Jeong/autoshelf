@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.8
+
+- Added schema-backed Anthropic reliability controls in `config.toml`, including retry delay bounds, jitter, and circuit-breaker thresholds, with config migration coverage for existing installs.
+- Added jittered retry backoff plus a cooldown circuit breaker around Anthropic planner requests so repeated API outages degrade quickly to the offline planner instead of hammering the remote path.
+- Documented the new planner reliability controls in the README and added regression coverage for retry timing, breaker-open fallback, and cooldown recovery.
+
 ## v1.0.7
 
 - Added a numbered config migration framework so legacy unversioned `config.toml` files are normalized and upgraded on load instead of failing strict validation.
