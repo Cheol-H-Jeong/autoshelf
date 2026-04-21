@@ -110,6 +110,11 @@ class FakeLLM:
             )
             for brief in briefs
         ]
+        base_primaries = self._apply_near_duplicate_anchors(
+            briefs,
+            base_primaries,
+            doc_folder=doc_folder,
+        )
         assignments: list[PlannerAssignment] = []
         sibling_years: dict[tuple[str, ...], set[str]] = defaultdict(set)
         for brief, base_primary in zip(briefs, base_primaries, strict=False):
@@ -179,6 +184,51 @@ class FakeLLM:
             korean = self.CATEGORY_MAP.get(ext, "문서")
             return english_map.get(korean, "Documents")
         return self.CATEGORY_MAP.get(ext, "문서")
+
+    def _apply_near_duplicate_anchors(
+        self,
+        briefs: list[FileBrief],
+        base_primaries: list[list[str]],
+        *,
+        doc_folder: str,
+    ) -> list[list[str]]:
+        adjusted = [list(parts) for parts in base_primaries]
+        briefs_by_group: dict[str, list[int]] = defaultdict(list)
+        for index, brief in enumerate(briefs):
+            if brief.near_duplicate_group_size > 1 and brief.near_duplicate_group_id:
+                briefs_by_group[brief.near_duplicate_group_id].append(index)
+        for indices in briefs_by_group.values():
+            anchor_index = max(
+                indices,
+                key=lambda index: (
+                    self._semantic_signal_score(briefs[index]),
+                    len(adjusted[index]),
+                    briefs[index].path,
+                ),
+            )
+            anchor_primary = adjusted[anchor_index]
+            anchor_score = self._semantic_signal_score(briefs[anchor_index])
+            for index in indices:
+                if index == anchor_index:
+                    continue
+                current_primary = adjusted[index]
+                current_score = self._semantic_signal_score(briefs[index])
+                if current_score >= anchor_score:
+                    continue
+                if current_primary == anchor_primary:
+                    continue
+                if current_primary[0] != doc_folder and len(current_primary) >= len(anchor_primary):
+                    continue
+                adjusted[index] = list(anchor_primary)
+        return adjusted
+
+    def _semantic_signal_score(self, brief: FileBrief) -> int:
+        return (
+            min(len(brief.title.strip()), 80)
+            + min(len(brief.head_text.strip()), 180)
+            + (40 if brief.meaningful_parent_hint.strip() else 0)
+            + int(brief.near_duplicate_similarity * 100)
+        )
 
 
 class AnthropicPlannerLLM:

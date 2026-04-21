@@ -267,12 +267,14 @@ def test_brief_summary_includes_parent_folder_context():
         title="Proposal",
         head_text="Statement of work",
         duplicate_group_size=2,
+        near_duplicate_group_size=3,
     )
 
     assert "parent=client-a" in brief.summary
     assert "ancestry=inbox/client-a" in brief.summary
     assert "hint=client-a" in brief.summary
     assert "dupes=2" in brief.summary
+    assert "near_dupes=3" in brief.summary
 
 
 def test_brief_prompt_text_calls_out_meaningful_parent_hint():
@@ -287,8 +289,14 @@ def test_brief_prompt_text_calls_out_meaningful_parent_hint():
         title="Renewal proposal",
         head_text="Statement of work for the next term.",
         duplicate_group_size=1,
+        near_duplicate_group_size=2,
+        near_duplicate_similarity=0.88,
+        near_duplicate_peers=["clients/acme/archive/renewal-v2.txt"],
     )
 
     assert "parent_folder=proposals" in brief.prompt_text
     assert "ancestor_folders=clients/acme/proposals" in brief.prompt_text
     assert "meaningful_parent_hint=acme" in brief.prompt_text
+    assert "near_duplicate_group_size=2" in brief.prompt_text
+    assert "near_duplicate_similarity=0.88" in brief.prompt_text
+    assert "near_duplicate_peers=renewal-v2.txt" in brief.prompt_text

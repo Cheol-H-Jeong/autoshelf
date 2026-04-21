@@ -121,6 +121,16 @@ def build_assignment_rationale(
         else:
             reasons.append(f"동일 해시 파일 {brief.duplicate_group_size}개를 함께 감안")
 
+    if brief.near_duplicate_group_size > 1:
+        if corpus_english:
+            reasons.append(
+                f"kept with {brief.near_duplicate_group_size - 1} close variants"
+            )
+        else:
+            reasons.append(
+                f"유사한 변형본 {brief.near_duplicate_group_size - 1}개와 함께 유지"
+            )
+
     if also_relevant:
         extras = ", ".join("/".join(parts) for parts in also_relevant)
         if corpus_english:

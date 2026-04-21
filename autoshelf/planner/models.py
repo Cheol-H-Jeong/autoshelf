@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -18,6 +19,10 @@ class FileBriefModel(BaseModel):
     title: str = ""
     head_text: str = ""
     duplicate_group_size: int = Field(default=1, ge=1)
+    near_duplicate_group_id: str = ""
+    near_duplicate_group_size: int = Field(default=1, ge=1)
+    near_duplicate_similarity: float = Field(default=0.0, ge=0.0, le=1.0)
+    near_duplicate_peers: list[str] = Field(default_factory=list)
 
     @property
     def summary(self) -> str:
@@ -28,6 +33,7 @@ class FileBriefModel(BaseModel):
         return (
             f"{self.filename} | parent={parent} | ancestry={ancestry} | ext={self.extension} | "
             f"hint={parent_hint} | dupes={self.duplicate_group_size} | "
+            f"near_dupes={self.near_duplicate_group_size} | "
             f"mtime={int(self.mtime)} | title={self.title} | "
             f"excerpt={excerpt}"
         )[:300]
@@ -43,8 +49,13 @@ class FileBriefModel(BaseModel):
             f"meaningful_parent_hint={self.meaningful_parent_hint.strip() or '-'}",
             f"extension={self.extension}",
             f"duplicate_group_size={self.duplicate_group_size}",
+            f"near_duplicate_group_size={self.near_duplicate_group_size}",
+            f"near_duplicate_similarity={self.near_duplicate_similarity:.2f}",
             f"mtime={int(self.mtime)}",
         ]
+        if self.near_duplicate_peers:
+            peers = ",".join(Path(path).name for path in self.near_duplicate_peers[:3])
+            fields.append(f"near_duplicate_peers={peers}")
         if self.title.strip():
             fields.append(f"title={self.title.strip()[:80]}")
         if excerpt:

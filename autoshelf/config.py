@@ -47,6 +47,10 @@ class AppConfig(BaseModel):
     include_dotfiles: bool = False
     max_head_chars: int = 2000
     max_chunk_tokens: int = 20_000
+    near_duplicate_detection: bool = True
+    near_duplicate_threshold: float = Field(default=0.72, ge=0.5, le=1.0)
+    near_duplicate_shingle_size: int = Field(default=3, ge=1, le=8)
+    near_duplicate_min_token_count: int = Field(default=12, ge=1)
     dry_run_default: bool = True
     theme: str = "system"
     language_preference: str = "auto"

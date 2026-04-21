@@ -68,8 +68,16 @@ mappings:
         file_hash="shared-hash",
     )
     contexts = {
-        file_info.absolute_path: ParsedContext("Draft", "notes", {}),
-        duplicate.absolute_path: ParsedContext("Copy", "notes", {}),
+        file_info.absolute_path: ParsedContext(
+            "Draft",
+            "project notes for customer renewal package and invoice checklist draft copy",
+            {},
+        ),
+        duplicate.absolute_path: ParsedContext(
+            "Copy",
+            "project notes for customer renewal package and invoice checklist draft copy duplicate",
+            {},
+        ),
     }
     result = PlannerPipeline(config).plan([file_info, duplicate], contexts, root=tmp_path)
     assert result.assignments
@@ -85,6 +93,8 @@ mappings:
     assert "ancestor_folders=inbox" in payload["messages"][0]["content"][0]["text"]
     assert "meaningful_parent_hint=-" in payload["messages"][0]["content"][0]["text"]
     assert "duplicate_group_size=2" in payload["messages"][0]["content"][0]["text"]
+    assert "near_duplicate_group_size=2" in payload["messages"][0]["content"][0]["text"]
+    assert "near_duplicate_peers=draft-copy.txt" in payload["messages"][0]["content"][0]["text"]
 
 
 def test_anthropic_payload_caches_shared_prompt_bundle(monkeypatch, mock_anthropic, tmp_path):

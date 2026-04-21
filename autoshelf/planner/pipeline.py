@@ -11,6 +11,7 @@ from autoshelf.planner.contextual import meaningful_parent_folder
 from autoshelf.planner.draft import load_draft, save_draft
 from autoshelf.planner.llm import get_planner_llm
 from autoshelf.planner.models import PlanDraft, PlannerAssignment, PlannerUsage
+from autoshelf.planner.near_duplicates import NearDuplicateInfo, detect_near_duplicates
 from autoshelf.planner.review import build_tree_from_assignments
 from autoshelf.planner.validation import validate_and_normalize_tree
 from autoshelf.rules import apply_assignment_rules, load_planning_rules, merge_rule_paths
@@ -32,6 +33,7 @@ class PlannerPipeline:
         self.config = config or AppConfig()
         self.llm = get_planner_llm(self.config)
         self._duplicate_hash_counts: dict[str, int] = {}
+        self._near_duplicate_info: dict[str, NearDuplicateInfo] = {}
 
     def plan(
         self,
@@ -44,6 +46,7 @@ class PlannerPipeline:
         rules = load_planning_rules(root)
         self.llm = get_planner_llm(self.config, rules)
         self._duplicate_hash_counts = self._count_duplicate_hashes(files)
+        self._near_duplicate_info = detect_near_duplicates(files, contexts, self.config)
         briefs = [self._brief(file_info, contexts) for file_info in files]
         chunks = self._chunk_briefs(briefs)
         tree: dict[str, object] = merge_rule_paths({}, rules)
@@ -122,6 +125,10 @@ class PlannerPipeline:
             title=context.title,
             head_text=context.head_text,
             duplicate_group_size=self._duplicate_group_size(file_info),
+            near_duplicate_group_id=self._near_duplicate_group_id(file_info),
+            near_duplicate_group_size=self._near_duplicate_group_size(file_info),
+            near_duplicate_similarity=self._near_duplicate_similarity(file_info),
+            near_duplicate_peers=self._near_duplicate_peers(file_info),
         )
         parent_hint = meaningful_parent_folder(brief, fallback="Folder") or ""
         return brief.model_copy(update={"meaningful_parent_hint": parent_hint})
@@ -163,6 +170,25 @@ class PlannerPipeline:
         for file_info in files:
             counts[file_info.file_hash] = counts.get(file_info.file_hash, 0) + 1
         return counts
+
+    def _near_duplicate(self, file_info: FileInfo) -> NearDuplicateInfo | None:
+        return self._near_duplicate_info.get(str(file_info.relative_path))
+
+    def _near_duplicate_group_id(self, file_info: FileInfo) -> str:
+        info = self._near_duplicate(file_info)
+        return info.group_id if info is not None else ""
+
+    def _near_duplicate_group_size(self, file_info: FileInfo) -> int:
+        info = self._near_duplicate(file_info)
+        return info.group_size if info is not None else 1
+
+    def _near_duplicate_similarity(self, file_info: FileInfo) -> float:
+        info = self._near_duplicate(file_info)
+        return info.strongest_similarity if info is not None else 0.0
+
+    def _near_duplicate_peers(self, file_info: FileInfo) -> list[str]:
+        info = self._near_duplicate(file_info)
+        return list(info.peers) if info is not None else []
 
 
 def _merge_trees(left: dict[str, object], right: dict[str, object]) -> dict[str, object]:
