@@ -3,6 +3,12 @@ from __future__ import annotations
 import json
 
 from autoshelf.applier import apply_plan
+from autoshelf.apply_state import (
+    run_staging_dir,
+    run_state_path,
+    write_run_plan,
+    write_run_state,
+)
 from autoshelf.planner.models import PlannerAssignment
 from autoshelf.verify import verify_root
 
@@ -50,3 +56,31 @@ def test_verify_root_detects_hash_drift_and_unexpected_file(tmp_path):
     (tmp_path / "surprise.txt").write_text("extra", encoding="utf-8")
     report = verify_root(tmp_path)
     assert {issue.code for issue in report.issues} >= {"hash_mismatch", "unexpected_file"}
+
+
+def test_verify_root_detects_incomplete_run_and_staged_artifact(tmp_path):
+    source = tmp_path / "draft.txt"
+    source.write_text("hello", encoding="utf-8")
+    assignment = _assignment("draft.txt", ["Docs"])
+    run_id = "verify-run"
+    write_run_plan(tmp_path, [assignment], run_id)
+    write_run_state(
+        run_state_path(tmp_path, run_id),
+        run_id=run_id,
+        status="interrupted",
+        current_path="draft.txt",
+        completed_entries=0,
+        total_entries=1,
+        last_error="simulated interruption",
+    )
+    staged = run_staging_dir(tmp_path, run_id) / "partial.txt.part"
+    staged.parent.mkdir(parents=True, exist_ok=True)
+    staged.write_text("partial", encoding="utf-8")
+
+    report = verify_root(tmp_path)
+
+    assert {issue.code for issue in report.issues} >= {
+        "incomplete_run",
+        "incomplete_entry",
+        "staged_artifact",
+    }

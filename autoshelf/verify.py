@@ -5,6 +5,12 @@ from pathlib import Path
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
 
+from autoshelf.apply_state import (
+    load_all_run_states,
+    load_run_plan_entries,
+    run_plan_path,
+    run_staging_dir,
+)
 from autoshelf.manifest import (
     GENESIS_HASH,
     ManifestEntry,
@@ -50,6 +56,7 @@ def verify_root(root: Path) -> VerifyReport:
                 message="manifest.jsonl is missing",
             )
         )
+        report.issues.extend(_validate_run_state(root))
         return report
     try:
         entries = load_manifest_entries(manifest_path)
@@ -62,6 +69,7 @@ def verify_root(root: Path) -> VerifyReport:
                 message=str(exc),
             )
         )
+        report.issues.extend(_validate_run_state(root))
         return report
 
     report.manifest_entries = len(entries)
@@ -127,6 +135,7 @@ def verify_root(root: Path) -> VerifyReport:
                 message="file exists on disk but is not described by the manifest",
             )
         )
+    report.issues.extend(_validate_run_state(root))
     return report
 
 
@@ -175,3 +184,42 @@ def _is_ignored(relative: Path) -> bool:
     if relative.name in IGNORED_ROOT_FILES:
         return True
     return any(part in IGNORED_ROOT_DIRS for part in relative.parts)
+
+
+def _validate_run_state(root: Path) -> list[VerifyIssue]:
+    issues: list[VerifyIssue] = []
+    for state in load_all_run_states(root):
+        if state.status == "completed":
+            continue
+        issues.append(
+            VerifyIssue(
+                code="incomplete_run",
+                path=f".autoshelf/runs/{state.run_id}.state.json",
+                message=(
+                    f"run {state.run_id} is {state.status} at {state.current_path or '<idle>'}; "
+                    "resume or inspect the run plan before trusting the tree"
+                ),
+            )
+        )
+        plan_path = run_plan_path(root, state.run_id)
+        for entry in load_run_plan_entries(plan_path):
+            if entry.status == "applied":
+                continue
+            issues.append(
+                VerifyIssue(
+                    code="incomplete_entry",
+                    path=entry.target_path or entry.path,
+                    message=f"run {state.run_id} still has entry status {entry.status}",
+                )
+            )
+        staging_dir = run_staging_dir(root, state.run_id)
+        if staging_dir.exists():
+            for staged in sorted(path for path in staging_dir.rglob("*") if path.is_file()):
+                issues.append(
+                    VerifyIssue(
+                        code="staged_artifact",
+                        path=str(staged.relative_to(root)),
+                        message="staged recovery artifact remains from an incomplete run",
+                    )
+                )
+    return issues

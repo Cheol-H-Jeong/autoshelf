@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from autoshelf.applier import apply_plan
+from autoshelf.apply_state import run_state_path, write_run_plan, write_run_state
 from autoshelf.planner.models import PlannerAssignment
 
 
@@ -60,6 +61,30 @@ def test_cli_verify_exits_zero_for_clean_tree(tmp_path):
     )
     assert completed.returncode == 0
     assert '"issues": []' in completed.stdout
+
+
+def test_cli_verify_exits_nonzero_for_incomplete_run(tmp_path):
+    (tmp_path / "draft.txt").write_text("hello", encoding="utf-8")
+    assignment = PlannerAssignment(path="draft.txt", primary_dir=["Docs"], summary="hello")
+    run_id = "cli-verify-run"
+    write_run_plan(tmp_path, [assignment], run_id)
+    write_run_state(
+        run_state_path(tmp_path, run_id),
+        run_id=run_id,
+        status="interrupted",
+        current_path="draft.txt",
+        completed_entries=0,
+        total_entries=1,
+        last_error="simulated interruption",
+    )
+    completed = subprocess.run(
+        [sys.executable, "-m", "autoshelf", "verify", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[1],
+    )
+    assert completed.returncode == 1
+    assert '"code": "incomplete_run"' in completed.stdout
 
 
 def test_cli_plan_uses_rules_file(tmp_path):

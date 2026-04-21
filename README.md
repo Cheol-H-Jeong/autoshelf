@@ -7,7 +7,7 @@
 - Real Anthropic planner path with tool-use JSON, jittered retries, a cooldown circuit breaker, prompt caching fields, and per-chunk FakeLLM fallback.
 - Offline deterministic planning for CI and first-run use.
 - Parser coverage for text, pdf, office, hwp, image, code, archive, and media files.
-- Two-phase apply with resumable run plans, hash verification, and undo history.
+- Two-phase apply with resumable run plans, interrupt-aware run state, staged cross-device moves, hash verification, and undo history.
 - PySide6 desktop GUI with saved light/dark theme support, rationale-rich review previews, and dedicated Home, Review, Apply, History, and Settings tabs.
 - Korean and English UI catalogs.
 
@@ -60,6 +60,7 @@ Offline planning is used automatically when `ANTHROPIC_API_KEY` is unset or `llm
 When Anthropic planning is enabled, autoshelf sends each file brief with its immediate parent folder name so uploads from meaningful staging folders like `receipts/`, `client-a/`, or `강의자료/` keep that signal during classification. The Anthropic prompt prefix also includes stable few-shot examples in a cacheable system block so repeated runs on the same machine spend fewer prompt tokens on shared planner instructions.
 
 After an apply, run `python -m autoshelf verify /path/to/root` to confirm the on-disk tree still matches the manifest hash chain.
+If an apply is interrupted, rerun `python -m autoshelf apply /path/to/root --resume <run-id>` to finish the recorded run safely. `verify` now reports incomplete runs and leftover staged recovery artifacts under `.autoshelf/` so operators can audit the tree before trusting it.
 
 Use `python -m autoshelf export /path/to/root` to package the current `manifest.jsonl`, `FOLDER_GUIDE.md`, `FILE_INDEX.md`, and resumable run plans into a portable `.tar.gz` bundle. Import that archive into another root with `python -m autoshelf import ...` to unpack it under `.autoshelf/imports/` for offline review, debugging, or support handoff without touching live files.
 
