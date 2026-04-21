@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.25
+
+- Added a quarantine review workflow to the desktop Review tab so low-confidence assignments are called out explicitly instead of being buried under `.autoshelf/quarantine`.
+- Added operator actions to re-plan quarantined files from source-path context or clear quarantine by keeping them in their current folder, reducing manual cleanup before a paid deployment trusts the draft.
+- Expanded GUI and model regression coverage around quarantine state rendering, review actions, and localized review summaries.
+
 ## v1.0.24
 
 - Hardened `autoshelf apply --resume` to fail closed when a source file is gone but the recorded target path contains mismatched content, preventing a corrupted recovery state from being silently rehashed into a fresh manifest.
