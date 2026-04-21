@@ -5,6 +5,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from autoshelf.planner.models import PlannerAssignment
+from autoshelf.quarantine import is_quarantine_path
 
 
 class PreviewItem(BaseModel):
@@ -23,6 +24,8 @@ class PreviewItem(BaseModel):
 
     @property
     def action(self) -> str:
+        if self.is_quarantined:
+            return "quarantine"
         if self.source_parts == self.target_parts:
             return "kept"
         if self.source_folder:
@@ -56,9 +59,13 @@ class PreviewItem(BaseModel):
     def source_display(self) -> str:
         return self.source_path or self.filename
 
+    @property
+    def is_quarantined(self) -> bool:
+        return is_quarantine_path(self.target_parts[:-1])
+
 
 def summarize_actions(items: list[PreviewItem]) -> dict[str, int]:
-    counts = {"kept": 0, "moved": 0, "placed": 0}
+    counts = {"kept": 0, "moved": 0, "placed": 0, "quarantine": 0}
     for item in items:
         counts[item.action] += 1
     return counts

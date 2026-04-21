@@ -31,4 +31,23 @@ def test_preview_item_actions_cover_kept_moved_and_placed() -> None:
         "kept": 1,
         "moved": 1,
         "placed": 1,
+        "quarantine": 0,
+    }
+
+
+def test_preview_item_reports_quarantine_action() -> None:
+    quarantined = PreviewItem(
+        source_path="incoming/client-a/proposal.txt",
+        source_parts=["incoming", "client-a", "proposal.txt"],
+        target_parts=[".autoshelf", "quarantine", "proposal.txt"],
+        confidence=0.22,
+    )
+
+    assert quarantined.is_quarantined is True
+    assert quarantined.action == "quarantine"
+    assert summarize_actions([quarantined]) == {
+        "kept": 0,
+        "moved": 0,
+        "placed": 0,
+        "quarantine": 1,
     }

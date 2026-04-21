@@ -23,12 +23,18 @@ from PySide6.QtWidgets import (
 from autoshelf.config import AppConfig
 from autoshelf.i18n import t
 from autoshelf.planner.models import PlannerAssignment
+from autoshelf.quarantine import (
+    clear_quarantine_assignments,
+    quarantine_paths,
+    replan_quarantine_assignments,
+)
 
 from .review_models import PreviewItem, build_preview_items, summarize_actions
 
 STATUS_ROLE = Qt.UserRole + 1
 HINT_ROLE = Qt.UserRole + 2
 SUMMARY_ROLE = Qt.UserRole + 3
+SOURCE_ROLE = Qt.UserRole + 4
 
 
 class ReviewScreen(QWidget):
@@ -42,6 +48,9 @@ class ReviewScreen(QWidget):
         self.summary_label = QLabel("")
         self.summary_label.setWordWrap(True)
         layout.addWidget(self.summary_label)
+        self.quarantine_label = QLabel("")
+        self.quarantine_label.setWordWrap(True)
+        layout.addWidget(self.quarantine_label)
 
         splitter = QSplitter()
         self.current_tree = QTreeWidget()
@@ -76,10 +85,16 @@ class ReviewScreen(QWidget):
 
         button_row = QHBoxLayout()
         self.rerun_button = QPushButton("")
+        self.replan_quarantine_button = QPushButton("")
+        self.clear_quarantine_button = QPushButton("")
         self.approve_button = QPushButton("")
         button_row.addWidget(self.rerun_button)
+        button_row.addWidget(self.replan_quarantine_button)
+        button_row.addWidget(self.clear_quarantine_button)
         button_row.addWidget(self.approve_button)
         layout.addLayout(button_row)
+        self.replan_quarantine_button.clicked.connect(self.replan_selected_quarantine)
+        self.clear_quarantine_button.clicked.connect(self.clear_selected_quarantine)
         self.apply_config()
         self.load_preview(self._demo_assignments())
 
@@ -96,6 +111,7 @@ class ReviewScreen(QWidget):
         self._populate_proposed_tree(preview_items)
         self._populate_assignment_table(preview_items)
         self._update_summary(preview_items)
+        self._refresh_quarantine_controls()
         self.current_tree.expandAll()
         self.proposed_tree.expandAll()
         self.assignment_table.resizeColumnsToContents()
@@ -143,6 +159,7 @@ class ReviewScreen(QWidget):
             cursor.setData(0, STATUS_ROLE, item.action)
             cursor.setData(0, HINT_ROLE, self._item_hint(item))
             cursor.setData(0, SUMMARY_ROLE, self._selection_summary(item))
+            cursor.setData(0, SOURCE_ROLE, item.source_path)
             self._apply_status_style(cursor, item.action)
 
     def _populate_assignment_table(self, items: list[PreviewItem]) -> None:
@@ -191,8 +208,14 @@ class ReviewScreen(QWidget):
     def _item_hint(self, item: PreviewItem) -> str:
         rationale = item.rationale or "No rationale recorded."
         related = ", ".join("/".join(parts) for parts in item.also_relevant) or "none"
+        quarantine_note = (
+            "This item is quarantined because the planner confidence was too low.\n"
+            if item.is_quarantined
+            else ""
+        )
         return (
             f"Action: {self._action_label(item.action)}\n"
+            f"{quarantine_note}"
             f"Source folder: {item.source_folder or '.'}\n"
             f"Target folder: {item.target_folder or '.'}\n"
             f"Why this folder: {rationale}\n"
@@ -209,6 +232,8 @@ class ReviewScreen(QWidget):
             )
         if item.action == "kept":
             return t("review.preview_kept", self.active_config)
+        if item.action == "quarantine":
+            return t("review.preview_quarantine", self.active_config)
         return t("review.preview_placed", self.active_config)
 
     def _apply_status_style(self, item: QTreeWidgetItem, status: str) -> None:
@@ -222,6 +247,7 @@ class ReviewScreen(QWidget):
             "moved": QColor("#1f9d55"),
             "kept": QColor("#6b7280"),
             "placed": QColor("#2563eb"),
+            "quarantine": QColor("#c26d00"),
         }
         return colors.get(status, QColor("#111827"))
 
@@ -230,14 +256,21 @@ class ReviewScreen(QWidget):
             "moved": t("review.action_moved", self.active_config),
             "kept": t("review.action_kept", self.active_config),
             "placed": t("review.action_placed", self.active_config),
+            "quarantine": t("review.action_quarantine", self.active_config),
         }
         return labels.get(action, action)
 
     def _selection_summary(self, item: PreviewItem) -> str:
         related = ", ".join("/".join(parts) for parts in item.also_relevant) or "none"
         rationale = item.rationale or "No rationale recorded."
+        quarantine_note = (
+            "Quarantine reason: planner confidence was below the safe apply threshold.\n"
+            if item.is_quarantined
+            else ""
+        )
         return (
             f"{self._action_label(item.action)}\n"
+            f"{quarantine_note}"
             f"Before: {item.source_display}\n"
             f"After: {item.destination_path}\n"
             f"Confidence: {item.confidence:.2f}\n"
@@ -258,9 +291,47 @@ class ReviewScreen(QWidget):
                 moved=counts["moved"],
                 kept=counts["kept"],
                 placed=counts["placed"],
+                quarantine=counts["quarantine"],
                 confidence=f"{average_confidence:.2f}",
             )
         )
+
+    def replan_selected_quarantine(self) -> None:
+        updated = replan_quarantine_assignments(
+            self.loaded_assignments,
+            selected_paths=self._selected_quarantine_paths(),
+        )
+        self.load_preview(updated)
+
+    def clear_selected_quarantine(self) -> None:
+        updated = clear_quarantine_assignments(
+            self.loaded_assignments,
+            selected_paths=self._selected_quarantine_paths(),
+        )
+        self.load_preview(updated)
+
+    def _refresh_quarantine_controls(self) -> None:
+        quarantined = quarantine_paths(self.loaded_assignments)
+        count = len(quarantined)
+        enabled = count > 0
+        self.replan_quarantine_button.setEnabled(enabled)
+        self.clear_quarantine_button.setEnabled(enabled)
+        if enabled:
+            self.quarantine_label.setText(
+                t("review.quarantine_summary", self.active_config, count=count)
+            )
+            return
+        self.quarantine_label.setText(t("review.quarantine_empty", self.active_config))
+
+    def _selected_quarantine_paths(self) -> set[str]:
+        quarantined = quarantine_paths(self.loaded_assignments)
+        current = self.proposed_tree.currentItem()
+        if current is None:
+            return quarantined
+        source_path = current.data(0, SOURCE_ROLE)
+        if isinstance(source_path, str) and source_path in quarantined:
+            return {source_path}
+        return quarantined
 
     def _node_path(self, item: QTreeWidgetItem) -> str:
         parts: list[str] = []
@@ -288,6 +359,13 @@ class ReviewScreen(QWidget):
                 ),
                 confidence=0.94,
             ),
+            PlannerAssignment(
+                path="incoming/client-a/proposal.txt",
+                primary_dir=[".autoshelf", "quarantine"],
+                summary="Low-confidence draft kept in quarantine until an operator reviews it.",
+                confidence=0.22,
+                fallback=True,
+            ),
         ]
 
     def apply_config(self, config: AppConfig | None = None) -> None:
@@ -296,8 +374,11 @@ class ReviewScreen(QWidget):
         self.selection_summary.setPlaceholderText(t("review.selection_placeholder", config))
         self.folder_hint.setPlaceholderText(t("review.hint_placeholder", config))
         self.rerun_button.setText(t("review.rerun", config))
+        self.replan_quarantine_button.setText(t("review.quarantine_replan", config))
+        self.clear_quarantine_button.setText(t("review.quarantine_clear", config))
         self.approve_button.setText(f"{t('button.apply', config)} →")
         if self.loaded_assignments:
             self.load_preview(self.loaded_assignments)
         else:
             self.summary_label.setText(t("review.summary_empty", config))
+            self.quarantine_label.setText(t("review.quarantine_empty", config))
