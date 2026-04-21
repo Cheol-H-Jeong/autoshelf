@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.4
+
+- Applied saved GUI light and dark themes at startup instead of leaving the theme selector disconnected from the actual desktop palette.
+- Wired the Settings screen to real config persistence with save feedback so theme, language, chunk budget, and exclude globs survive restarts.
+- Rebuilt the Review tab as a real move preview with colored status indicators, target overlays, and folder-level rationale hints pulled from planner assignment summaries.
+
 ## v1.0.3
 
 - Added a working Linux release bundle flow that emits a versioned `tar.gz` with the project wheel, installer script, desktop entry, copied docs, and SHA-256 checksum.
