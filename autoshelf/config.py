@@ -4,6 +4,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from autoshelf.config_migrations import LATEST_CONFIG_VERSION, migrate_config_data
 from autoshelf.paths import config_dir
 
 
@@ -27,6 +28,7 @@ class AppConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    schema_version: int = Field(default=LATEST_CONFIG_VERSION, ge=1)
     exclude: list[str] = Field(
         default_factory=lambda: [".git", "node_modules", "__pycache__", ".venv"]
     )
@@ -48,8 +50,8 @@ class AppConfig(BaseModel):
         config_path = path or cls.default_path()
         if not config_path.exists():
             return cls()
-        data = _parse_toml(config_path)
-        return cls.model_validate(data)
+        migration = migrate_config_data(_parse_toml(config_path))
+        return cls.model_validate(migration.data)
 
     def save(self, path: Path | None = None) -> Path:
         config_path = path or self.default_path()
