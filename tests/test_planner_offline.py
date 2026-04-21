@@ -41,3 +41,36 @@ def test_naming_validator_rejects_misc():
         assert "vague" in str(exc)
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_fake_llm_picks_one_language_for_whole_corpus(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    config = AppConfig()
+    mtime = datetime(2024, 5, 1).timestamp()
+
+    def make(name, ext, title, head):
+        return FileInfo(
+            absolute_path=tmp_path / name,
+            relative_path=Path(name),
+            parent_name="",
+            filename=name,
+            stem=name.rsplit(".", 1)[0],
+            extension=ext,
+            size_bytes=1,
+            mtime=mtime,
+            ctime=mtime,
+            file_hash="h",
+        )
+
+    files = [
+        make("budget.txt", "txt", "Budget", "english english english"),
+        make("보고서.txt", "txt", "보고서", "한국어 본문입니다"),
+    ]
+    contexts = {
+        files[0].absolute_path: ParsedContext("Budget", "english english english", {}),
+        files[1].absolute_path: ParsedContext("보고서", "한국어 본문입니다", {}),
+    }
+    result = PlannerPipeline(config).plan(files, contexts)
+    primaries = {a.primary_dir[0] for a in result.assignments}
+    assert len(primaries) == 1, f"expected one top-level folder, got {primaries}"
+    assert primaries & {"Documents", "문서"}

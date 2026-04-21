@@ -88,21 +88,23 @@ class FakeLLM:
         final_tree: dict[str, Any],
         briefs: list[FileBrief],
     ) -> list[PlannerAssignment]:
+        corpus_english = _corpus_mostly_english(briefs)
+        doc_folder = "Documents" if corpus_english else "문서"
         assignments: list[PlannerAssignment] = []
         sibling_years: dict[str, set[str]] = defaultdict(set)
         for brief in briefs:
-            top_level = self._folder_for_extension(brief.extension, brief)
+            top_level = self._folder_for_extension(brief.extension, corpus_english)
             year = datetime.fromtimestamp(brief.mtime).strftime("%Y")
             sibling_years[top_level].add(year)
         for brief in briefs:
-            top_level = self._folder_for_extension(brief.extension, brief)
+            top_level = self._folder_for_extension(brief.extension, corpus_english)
             year = datetime.fromtimestamp(brief.mtime).strftime("%Y")
             primary = [top_level]
             if len(sibling_years[top_level]) > 1:
                 primary.append(year)
             also: list[list[str]] = []
-            if brief.extension in {"md", "txt", "pdf", "docx", "hwp"} and top_level != "문서":
-                also.append(["문서"])
+            if brief.extension in {"md", "txt", "pdf", "docx", "hwp"} and top_level != doc_folder:
+                also.append([doc_folder])
             assignments.append(
                 PlannerAssignment(
                     path=brief.path,
@@ -113,9 +115,9 @@ class FakeLLM:
             )
         return assignments
 
-    def _folder_for_extension(self, extension: str, brief: FileBrief) -> str:
+    def _folder_for_extension(self, extension: str, corpus_english: bool) -> str:
         ext = extension.lower()
-        if _mostly_english(" ".join([brief.filename, brief.title, brief.head_text])):
+        if corpus_english:
             english_map = {
                 "문서": "Documents",
                 "발표자료": "Presentations",
@@ -209,3 +211,10 @@ def _mostly_english(text: str) -> bool:
     hangul = sum(1 for char in text if "\uac00" <= char <= "\ud7a3")
     ascii_letters = sum(1 for char in text if char.isascii() and char.isalpha())
     return ascii_letters >= hangul
+
+
+def _corpus_mostly_english(briefs: list[FileBrief]) -> bool:
+    combined = " ".join(
+        part for brief in briefs for part in (brief.filename, brief.title, brief.head_text)
+    )
+    return _mostly_english(combined)
