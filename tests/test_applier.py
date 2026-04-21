@@ -4,8 +4,10 @@ import errno
 import json
 from pathlib import Path
 
+import pytest
+
 import autoshelf.shortcuts as shortcuts_module
-from autoshelf.applier import apply_plan, load_run_plan
+from autoshelf.applier import ApplyRecoveryError, apply_plan, load_run_plan
 from autoshelf.apply_state import (
     run_staging_dir,
     run_state_path,
@@ -272,6 +274,42 @@ def test_apply_skip_policy_leaves_existing_target(tmp_path):
     )
     assert result.moved == []
     assert source.exists()
+
+
+def test_apply_resume_raises_for_missing_source_with_mismatched_target(tmp_path):
+    source = tmp_path / "draft.txt"
+    source.write_text("hello", encoding="utf-8")
+    assignment = _assignment("draft.txt", ["문서"])
+    run_id = "resume-mismatch"
+    plan_path = write_run_plan(tmp_path, [assignment], run_id)
+    target = tmp_path / "문서" / "draft.txt"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("wrong", encoding="utf-8")
+    source.unlink()
+    update_run_entry(plan_path, "draft.txt", status="running", target_path="문서/draft.txt")
+    write_run_state(
+        run_state_path(tmp_path, run_id),
+        run_id=run_id,
+        status="interrupted",
+        current_path="draft.txt",
+        completed_entries=0,
+        total_entries=1,
+        last_error="simulated interruption",
+    )
+
+    with pytest.raises(ApplyRecoveryError):
+        apply_plan(
+            tmp_path,
+            [assignment],
+            {"문서": {}},
+            dry_run=False,
+            run_id=run_id,
+            resume=True,
+        )
+
+    plan = load_run_plan(tmp_path / ".autoshelf" / "runs" / f"{run_id}.plan.jsonl")
+    assert plan[0]["status"] == "running"
+    assert target.read_text(encoding="utf-8") == "wrong"
 
 
 def test_apply_plan_supports_fake_filesystem_backend(tmp_path):

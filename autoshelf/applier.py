@@ -39,6 +39,10 @@ class ApplyInterruptedError(RuntimeError):
     pass
 
 
+class ApplyRecoveryError(RuntimeError):
+    pass
+
+
 def apply_plan(
     root: Path,
     assignments: list[PlannerAssignment],
@@ -145,6 +149,9 @@ def apply_plan(
                         continue
                     reconciled = mover.recover(entry, final_target)
                     if reconciled is None and not active_filesystem.exists(source):
+                        _raise_for_unrecoverable_missing_source(
+                            root, entry, final_target, active_filesystem
+                        )
                         update_run_entry(plan_path, entry.path, status="skipped")
                         session.add(
                             _transaction_record(
@@ -284,6 +291,26 @@ def _create_entry_shortcut(root: Path, final_target: Path, extra: list[str]) -> 
         return create_shortcut(final_target, shortcut_path)
     except OSError:
         return copy_fallback(final_target, shortcut_path)
+
+
+def _raise_for_unrecoverable_missing_source(
+    root: Path,
+    entry: RunPlanEntry,
+    final_target: Path,
+    filesystem: Filesystem,
+) -> None:
+    if entry.status == "planned" and not entry.target_path and entry.copy_stage == "pending":
+        return
+    if filesystem.exists(final_target):
+        raise ApplyRecoveryError(
+            f"cannot resume {entry.path}: source is missing and target "
+            f"{final_target.relative_to(root)} does not match the recorded file state"
+        )
+    if entry.copy_stage != "pending" or entry.target_path:
+        raise ApplyRecoveryError(
+            f"cannot resume {entry.path}: source is missing and recovery artifacts for "
+            f"run state {entry.copy_stage!r} are gone"
+        )
 
 
 @dataclass(slots=True)
