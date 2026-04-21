@@ -18,7 +18,7 @@ scan/parsers -> planner -> preview/review -> apply -> manifest/undo/verify
 
 1. `autoshelf.scanner` walks the target root, applies ignore rules, and extracts metadata plus light parser output.
 2. `autoshelf.rules` injects hard policy such as pinned folders and forced mappings before any model planning.
-3. `autoshelf.planner.pipeline` converts file briefs into planner assignments using either offline heuristics or the Anthropic-backed provider path.
+3. `autoshelf.planner.pipeline` converts file briefs into planner assignments using either offline heuristics or the Anthropic-backed provider path, then runs a full-tree review pass that can merge weak workflow folders and rewrite operator-facing rationales before preview or apply.
 4. `autoshelf.preview` materializes a browseable symlink tree under `.autoshelf/preview/` so operators can inspect the proposed structure without moving live files.
 5. `autoshelf.applier` promotes files into their final destinations, records resumable state, emits `manifest.jsonl`, and creates related-location shortcuts.
 6. `autoshelf.verify` re-walks the tree, validates expected targets and shortcuts, and reports interrupted-copy drift or external tampering.
