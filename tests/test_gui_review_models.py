@@ -32,6 +32,7 @@ def test_preview_item_actions_cover_kept_moved_and_placed() -> None:
         "moved": 1,
         "placed": 1,
         "quarantine": 0,
+        "reassigned": 0,
     }
 
 
@@ -50,4 +51,26 @@ def test_preview_item_reports_quarantine_action() -> None:
         "moved": 0,
         "placed": 0,
         "quarantine": 1,
+        "reassigned": 0,
+    }
+
+
+def test_preview_item_reports_manual_reassignment_separately() -> None:
+    reassigned = PreviewItem(
+        source_path="Inbox/draft.txt",
+        source_parts=["Inbox", "draft.txt"],
+        target_parts=["Archive", "Writing", "draft.txt"],
+        confidence=0.9,
+        baseline_target_parts=["Documents", "Writing", "draft.txt"],
+    )
+
+    assert reassigned.action == "moved"
+    assert reassigned.operator_modified is True
+    assert reassigned.display_action == "reassigned"
+    assert summarize_actions([reassigned]) == {
+        "kept": 0,
+        "moved": 0,
+        "placed": 0,
+        "quarantine": 0,
+        "reassigned": 1,
     }

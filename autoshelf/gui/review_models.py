@@ -17,6 +17,7 @@ class PreviewItem(BaseModel):
     confidence: float
     rationale: str = ""
     also_relevant: list[list[str]] = Field(default_factory=list)
+    baseline_target_parts: list[str] = Field(default_factory=list)
 
     @property
     def filename(self) -> str:
@@ -52,6 +53,12 @@ class PreviewItem(BaseModel):
         return f"Place {self.filename} into {self.target_folder or '.'}"
 
     @property
+    def display_action(self) -> str:
+        if self.operator_modified:
+            return "reassigned"
+        return self.action
+
+    @property
     def destination_path(self) -> str:
         return "/".join(self.target_parts)
 
@@ -63,19 +70,33 @@ class PreviewItem(BaseModel):
     def is_quarantined(self) -> bool:
         return is_quarantine_path(self.target_parts[:-1])
 
+    @property
+    def baseline_destination_path(self) -> str:
+        return "/".join(self.baseline_target_parts)
+
+    @property
+    def operator_modified(self) -> bool:
+        return bool(self.baseline_target_parts) and self.baseline_target_parts != self.target_parts
+
 
 def summarize_actions(items: list[PreviewItem]) -> dict[str, int]:
-    counts = {"kept": 0, "moved": 0, "placed": 0, "quarantine": 0}
+    counts = {"kept": 0, "moved": 0, "placed": 0, "quarantine": 0, "reassigned": 0}
     for item in items:
-        counts[item.action] += 1
+        counts[item.display_action] += 1
     return counts
 
 
-def build_preview_items(assignments: list[PlannerAssignment]) -> list[PreviewItem]:
+def build_preview_items(
+    assignments: list[PlannerAssignment],
+    *,
+    manual_baselines: dict[str, list[str]] | None = None,
+) -> list[PreviewItem]:
     items: list[PreviewItem] = []
+    baselines = manual_baselines or {}
     for assignment in assignments:
         source_parts = _source_parts(assignment.path)
         target_parts = [*assignment.primary_dir, Path(assignment.path).name]
+        baseline_primary_dir = baselines.get(assignment.path, [])
         items.append(
             PreviewItem(
                 source_path=assignment.path,
@@ -84,6 +105,12 @@ def build_preview_items(assignments: list[PlannerAssignment]) -> list[PreviewIte
                 confidence=assignment.confidence,
                 rationale=assignment.summary,
                 also_relevant=assignment.also_relevant,
+                baseline_target_parts=[
+                    *baseline_primary_dir,
+                    Path(assignment.path).name,
+                ]
+                if baseline_primary_dir
+                else [],
             )
         )
     return items

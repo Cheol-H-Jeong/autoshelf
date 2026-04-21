@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -30,11 +29,7 @@ from autoshelf.quarantine import (
 )
 
 from .review_models import PreviewItem, build_preview_items, summarize_actions
-
-STATUS_ROLE = Qt.UserRole + 1
-HINT_ROLE = Qt.UserRole + 2
-SUMMARY_ROLE = Qt.UserRole + 3
-SOURCE_ROLE = Qt.UserRole + 4
+from .review_tree import HINT_ROLE, SOURCE_ROLE, STATUS_ROLE, SUMMARY_ROLE, ReviewTreeWidget
 
 
 class ReviewScreen(QWidget):
@@ -43,6 +38,7 @@ class ReviewScreen(QWidget):
         layout = QVBoxLayout(self)
         self.preview_items: dict[str, PreviewItem] = {}
         self.loaded_assignments: list[PlannerAssignment] = []
+        self.manual_reassignment_baselines: dict[str, list[str]] = {}
         self.active_config = AppConfig()
 
         self.summary_label = QLabel("")
@@ -55,12 +51,13 @@ class ReviewScreen(QWidget):
         splitter = QSplitter()
         self.current_tree = QTreeWidget()
         self.current_tree.setHeaderLabels(["Current Tree"])
-        self.proposed_tree = QTreeWidget()
+        self.proposed_tree = ReviewTreeWidget()
         self.proposed_tree.setHeaderLabels(["Proposed Tree", "Action", "Preview"])
         self.proposed_tree.setDragDropMode(QTreeWidget.InternalMove)
         self.proposed_tree.setEditTriggers(QTreeWidget.DoubleClicked | QTreeWidget.EditKeyPressed)
         self.proposed_tree.setSelectionMode(QAbstractItemView.SingleSelection)
         self.proposed_tree.itemSelectionChanged.connect(self._update_hint_panel)
+        self.proposed_tree.file_reassigned.connect(self.apply_manual_reassignment)
         self.proposed_tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
         self.proposed_tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.proposed_tree.header().setSectionResizeMode(2, QHeaderView.Stretch)
@@ -100,7 +97,10 @@ class ReviewScreen(QWidget):
 
     def load_preview(self, assignments: list[PlannerAssignment]) -> None:
         self.loaded_assignments = list(assignments)
-        preview_items = build_preview_items(assignments)
+        preview_items = build_preview_items(
+            assignments,
+            manual_baselines=self.manual_reassignment_baselines,
+        )
         self.preview_items = {item.destination_path: item for item in preview_items}
         self.current_tree.clear()
         self.proposed_tree.clear()
@@ -148,26 +148,28 @@ class ReviewScreen(QWidget):
                     action_label = ""
                     if depth == len(item.target_parts) - 1:
                         preview = self._preview_message(item)
-                        action_label = self._action_label(item.action)
+                        action_label = self._action_label(item.display_action)
                     node = QTreeWidgetItem([part, action_label, preview])
                     cursor.addChild(node)
                     root_items[key] = node
                     if depth < len(item.target_parts) - 1:
                         hint_key = tuple(item.target_parts[: depth + 1])
                         node.setData(0, HINT_ROLE, folder_hints.get(hint_key, ""))
+                        self.proposed_tree.mark_folder_item(node)
                 cursor = node
-            cursor.setData(0, STATUS_ROLE, item.action)
+            cursor.setData(0, STATUS_ROLE, item.display_action)
             cursor.setData(0, HINT_ROLE, self._item_hint(item))
             cursor.setData(0, SUMMARY_ROLE, self._selection_summary(item))
             cursor.setData(0, SOURCE_ROLE, item.source_path)
-            self._apply_status_style(cursor, item.action)
+            self.proposed_tree.mark_file_item(cursor)
+            self._apply_status_style(cursor, item.display_action)
 
     def _populate_assignment_table(self, items: list[PreviewItem]) -> None:
         for row, item in enumerate(items):
             self.assignment_table.insertRow(row)
             values = [
                 item.source_path,
-                self._action_label(item.action),
+                self._action_label(item.display_action),
                 item.target_folder,
                 f"{item.confidence:.2f}",
                 item.rationale or "No rationale recorded",
@@ -176,7 +178,7 @@ class ReviewScreen(QWidget):
             for column, value in enumerate(values):
                 cell = QTableWidgetItem(value)
                 self.assignment_table.setItem(row, column, cell)
-            action_brush = QBrush(self._status_color(item.action))
+            action_brush = QBrush(self._status_color(item.display_action))
             self.assignment_table.item(row, 1).setForeground(action_brush)
 
     def _update_hint_panel(self) -> None:
@@ -200,6 +202,10 @@ class ReviewScreen(QWidget):
             )
             for depth in range(1, len(item.target_parts)):
                 grouped[tuple(item.target_parts[:depth])].append(rationale)
+            if item.operator_modified and item.target_parts[:-1]:
+                grouped[tuple(item.target_parts[:-1])].append(
+                    f"Operator reassigned {item.filename} from {item.baseline_destination_path}."
+                )
         return {
             key: "\n".join(dict.fromkeys(lines))
             for key, lines in grouped.items()
@@ -213,9 +219,15 @@ class ReviewScreen(QWidget):
             if item.is_quarantined
             else ""
         )
+        operator_note = (
+            f"Operator override: originally planned for {item.baseline_destination_path}\n"
+            if item.operator_modified
+            else ""
+        )
         return (
-            f"Action: {self._action_label(item.action)}\n"
+            f"Action: {self._action_label(item.display_action)}\n"
             f"{quarantine_note}"
+            f"{operator_note}"
             f"Source folder: {item.source_folder or '.'}\n"
             f"Target folder: {item.target_folder or '.'}\n"
             f"Why this folder: {rationale}\n"
@@ -223,6 +235,13 @@ class ReviewScreen(QWidget):
         )
 
     def _preview_message(self, item: PreviewItem) -> str:
+        if item.operator_modified:
+            return t(
+                "review.preview_reassigned",
+                self.active_config,
+                source=item.baseline_destination_path or ".",
+                target=item.destination_path,
+            )
         if item.action == "moved":
             return t(
                 "review.preview_move",
@@ -248,6 +267,7 @@ class ReviewScreen(QWidget):
             "kept": QColor("#6b7280"),
             "placed": QColor("#2563eb"),
             "quarantine": QColor("#c26d00"),
+            "reassigned": QColor("#b45309"),
         }
         return colors.get(status, QColor("#111827"))
 
@@ -257,6 +277,7 @@ class ReviewScreen(QWidget):
             "kept": t("review.action_kept", self.active_config),
             "placed": t("review.action_placed", self.active_config),
             "quarantine": t("review.action_quarantine", self.active_config),
+            "reassigned": t("review.action_reassigned", self.active_config),
         }
         return labels.get(action, action)
 
@@ -268,9 +289,15 @@ class ReviewScreen(QWidget):
             if item.is_quarantined
             else ""
         )
+        operator_note = (
+            f"Operator override from: {item.baseline_destination_path}\n"
+            if item.operator_modified
+            else ""
+        )
         return (
-            f"{self._action_label(item.action)}\n"
+            f"{self._action_label(item.display_action)}\n"
             f"{quarantine_note}"
+            f"{operator_note}"
             f"Before: {item.source_display}\n"
             f"After: {item.destination_path}\n"
             f"Confidence: {item.confidence:.2f}\n"
@@ -292,21 +319,41 @@ class ReviewScreen(QWidget):
                 kept=counts["kept"],
                 placed=counts["placed"],
                 quarantine=counts["quarantine"],
+                reassigned=counts["reassigned"],
                 confidence=f"{average_confidence:.2f}",
             )
         )
 
+    def apply_manual_reassignment(self, source_path: str, target_dir: list[str]) -> None:
+        for index, assignment in enumerate(self.loaded_assignments):
+            if assignment.path != source_path:
+                continue
+            if assignment.primary_dir == target_dir:
+                return
+            self.manual_reassignment_baselines.setdefault(source_path, list(assignment.primary_dir))
+            self.loaded_assignments[index] = assignment.model_copy(
+                update={"primary_dir": list(target_dir)}
+            )
+            self.load_preview(self.loaded_assignments)
+            self.proposed_tree.select_source_path(source_path)
+            self._update_hint_panel()
+            return
+
     def replan_selected_quarantine(self) -> None:
+        selected_paths = self._selected_quarantine_paths()
+        self._clear_manual_reassignments(selected_paths)
         updated = replan_quarantine_assignments(
             self.loaded_assignments,
-            selected_paths=self._selected_quarantine_paths(),
+            selected_paths=selected_paths,
         )
         self.load_preview(updated)
 
     def clear_selected_quarantine(self) -> None:
+        selected_paths = self._selected_quarantine_paths()
+        self._clear_manual_reassignments(selected_paths)
         updated = clear_quarantine_assignments(
             self.loaded_assignments,
-            selected_paths=self._selected_quarantine_paths(),
+            selected_paths=selected_paths,
         )
         self.load_preview(updated)
 
@@ -340,6 +387,10 @@ class ReviewScreen(QWidget):
             parts.append(cursor.text(0))
             cursor = cursor.parent()
         return "/".join(reversed(parts))
+
+    def _clear_manual_reassignments(self, selected_paths: set[str]) -> None:
+        for path in selected_paths:
+            self.manual_reassignment_baselines.pop(path, None)
 
     def _demo_assignments(self) -> list[PlannerAssignment]:
         return [

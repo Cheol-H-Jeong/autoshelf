@@ -16,7 +16,13 @@ def _first_leaf(screen: ReviewScreen) -> QTreeWidgetItem | None:
 
 
 def test_review_screen_loads_preview_with_hints(monkeypatch):
+    import locale as _locale
+
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setattr(_locale, "getlocale", lambda *a, **k: ("en_US", "UTF-8"))
+    from autoshelf import i18n as _i18n
+
+    _i18n._catalog.cache_clear()
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
     app = QApplication.instance() or QApplication([])
     screen = ReviewScreen()
@@ -42,7 +48,13 @@ def test_review_screen_loads_preview_with_hints(monkeypatch):
 
 
 def test_review_screen_replans_and_clears_quarantine(monkeypatch):
+    import locale as _locale
+
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setattr(_locale, "getlocale", lambda *a, **k: ("en_US", "UTF-8"))
+    from autoshelf import i18n as _i18n
+
+    _i18n._catalog.cache_clear()
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
     app = QApplication.instance() or QApplication([])
     screen = ReviewScreen()
@@ -86,4 +98,31 @@ def test_review_screen_replans_and_clears_quarantine(monkeypatch):
     screen.clear_selected_quarantine()
     assert screen.loaded_assignments[0].primary_dir == ["incoming", "client-a"]
     assert "stays in its current folder" in screen.loaded_assignments[0].summary
+    app.processEvents()
+
+
+def test_review_screen_manual_reassignment_updates_preview_state(monkeypatch):
+    import locale as _locale
+
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setattr(_locale, "getlocale", lambda *a, **k: ("en_US", "UTF-8"))
+    from autoshelf import i18n as _i18n
+
+    _i18n._catalog.cache_clear()
+    os.environ["QT_QPA_PLATFORM"] = "offscreen"
+    app = QApplication.instance() or QApplication([])
+    screen = ReviewScreen()
+
+    screen.apply_manual_reassignment("Inbox/draft.txt", ["Archive", "Client A"])
+
+    assert screen.loaded_assignments[0].primary_dir == ["Archive", "Client A"]
+    assert "manually reassigned" in screen.summary_label.text().lower()
+    selected = screen.proposed_tree.currentItem()
+    assert selected is not None
+    selection_text = screen.selection_summary.toPlainText().lower()
+    hint_text = screen.folder_hint.toPlainText().lower()
+    assert "operator override from:" in selection_text
+    assert "documents/writing/draft.txt" in selection_text
+    assert "operator override: originally planned for" in hint_text
+    assert screen.assignment_table.item(0, 1).text() == "Reassign"
     app.processEvents()
