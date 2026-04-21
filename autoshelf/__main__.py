@@ -20,7 +20,12 @@ from autoshelf.planner.draft import load_draft
 from autoshelf.planner.pipeline import PlannerPipeline
 from autoshelf.preview import build_preview
 from autoshelf.progress import ProgressReporter
-from autoshelf.rules import filter_paths_by_rules, load_planning_rules, merge_exclude_patterns
+from autoshelf.rules import (
+    evaluate_path_rules,
+    filter_paths_by_rules,
+    load_planning_rules,
+    merge_exclude_patterns,
+)
 from autoshelf.scanner import scan_directory
 from autoshelf.stats import collect_stats, record_event
 from autoshelf.undo import undo_last_apply
@@ -61,6 +66,25 @@ def main() -> None:
                 data={"updated": result.updated, "backup_path": result.backup_path},
             )
             reporter.print_result(result.model_dump(mode="json"))
+            return
+    if args.command == "rules":
+        target_root = Path(args.root).expanduser().resolve()
+        rules = load_planning_rules(target_root)
+        if args.rules_command == "show":
+            reporter.print_result(
+                {
+                    "path": str(target_root / ".autoshelfrc.yaml"),
+                    "rules": rules.model_dump(mode="json"),
+                }
+            )
+            return
+        if args.rules_command == "match":
+            reporter.print_result(
+                [
+                    evaluate_path_rules(path, rules).model_dump(mode="json")
+                    for path in args.paths
+                ]
+            )
             return
     if args.command == "doctor":
         reporter.emit("doctor.started")
@@ -281,6 +305,13 @@ def build_parser() -> argparse.ArgumentParser:
     config_migrate = config_subparsers.add_parser("migrate", help="Apply config migrations")
     config_migrate.add_argument("--write", action="store_true", default=False)
     config_migrate.add_argument("--no-backup", action="store_true", default=False)
+    rules_parser = subparsers.add_parser("rules", help="Inspect the effective YAML rules policy")
+    rules_subparsers = rules_parser.add_subparsers(dest="rules_command", required=True)
+    rules_show = rules_subparsers.add_parser("show", help="Show normalized rules for a root")
+    rules_show.add_argument("root")
+    rules_match = rules_subparsers.add_parser("match", help="Explain how rules treat paths")
+    rules_match.add_argument("root")
+    rules_match.add_argument("paths", nargs="+")
     doctor = subparsers.add_parser("doctor", help="Run installation and environment diagnostics")
     doctor.add_argument("root", nargs="?")
     subparsers.add_parser("version", help="Print the autoshelf version")

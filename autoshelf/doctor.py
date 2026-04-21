@@ -21,7 +21,13 @@ def run_diagnostics(root: Path | None = None) -> dict[str, object]:
     target_root = root or Path.cwd()
     rules_file = rules_path(target_root)
     rules_status = "missing"
-    rules_summary = {"pinned_dirs": 0, "exclude_globs": 0, "mappings": 0}
+    rules_summary = {
+        "pinned_dirs": 0,
+        "exclude_globs": 0,
+        "mappings": 0,
+        "source_scoped_mappings": 0,
+        "current_targets": 0,
+    }
     if rules_file.exists():
         try:
             rules = load_planning_rules(target_root)
@@ -33,6 +39,10 @@ def run_diagnostics(root: Path | None = None) -> dict[str, object]:
                 "pinned_dirs": len(rules.pinned_dirs),
                 "exclude_globs": len(rules.exclude_globs),
                 "mappings": len(rules.mappings),
+                "source_scoped_mappings": sum(1 for rule in rules.mappings if rule.source_globs),
+                "current_targets": sum(
+                    1 for rule in rules.mappings if rule.target_mode == "current"
+                ),
             }
     checks = {
         "python_ok": sys.version_info >= (3, 11),

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from autoshelf.planner.models import PlannerAssignment
 from autoshelf.rules import (
+    CURRENT_TARGET,
     MappingRule,
     PlanningRules,
     apply_assignment_rules,
+    evaluate_path_rules,
     filter_paths_by_rules,
     is_path_excluded,
     load_planning_rules,
@@ -28,6 +30,8 @@ exclude_globs:
 mappings:
   - glob: "*.invoice.pdf"
     priority: 5
+    source_globs:
+      - Inbox/**
     target: Finance/Invoices
     also_relevant:
       - Documents
@@ -40,6 +44,7 @@ mappings:
     assert rules.pinned_dirs == [["Finance", "Taxes"], ["Documents", "Receipts"]]
     assert rules.exclude_globs == ["*.tmp", "Inbox/**"]
     assert rules.mappings[0].priority == 5
+    assert rules.mappings[0].source_globs == ["Inbox/**"]
     assert rules.mappings[0].target == ["Finance", "Invoices"]
     assert rules.mappings[0].also_relevant == [["Documents"]]
 
@@ -113,6 +118,71 @@ def test_higher_priority_mapping_rule_wins():
     assert matched.target == ["Finance", "Invoices"]
 
 
+def test_source_scoped_mapping_rule_matches_parent_path():
+    rules = PlanningRules(
+        mappings=[
+            MappingRule(
+                glob="*.pdf",
+                source_globs=["Inbox/**"],
+                target=["Finance", "Inbox PDFs"],
+            )
+        ]
+    )
+
+    matched = match_mapping_rule("Inbox/April/invoice.pdf", rules)
+
+    assert matched is not None
+    assert matched.resolve_target("Inbox/April/invoice.pdf") == ["Finance", "Inbox PDFs"]
+
+
+def test_source_scoped_mapping_rule_does_not_match_other_parents():
+    rules = PlanningRules(
+        mappings=[
+            MappingRule(
+                glob="*.pdf",
+                source_globs=["Inbox/**"],
+                target=["Finance", "Inbox PDFs"],
+            )
+        ]
+    )
+
+    matched = match_mapping_rule("Archive/invoice.pdf", rules)
+
+    assert matched is None
+
+
+def test_current_target_rule_keeps_source_parent_folder():
+    rules = PlanningRules(
+        mappings=[
+            MappingRule(glob="*.txt", target=CURRENT_TARGET),
+        ]
+    )
+
+    decision = evaluate_path_rules("Inbox/Notes/draft.txt", rules)
+
+    assert decision.matched is True
+    assert decision.target_mode == "current"
+    assert decision.target == ["Inbox", "Notes"]
+    assert "current source folder" in decision.reason
+
+
+def test_assignment_rules_can_keep_file_in_current_folder():
+    assignment = PlannerAssignment(
+        path="Inbox/Notes/draft.txt",
+        primary_dir=["Documents", "Writing"],
+        summary="draft",
+        confidence=0.7,
+    )
+    rules = PlanningRules(
+        mappings=[MappingRule(glob="*.txt", source_globs=["Inbox/**"], target=CURRENT_TARGET)]
+    )
+
+    adjusted = apply_assignment_rules([assignment], rules)
+
+    assert adjusted[0].primary_dir == ["Inbox", "Notes"]
+    assert adjusted[0].summary.startswith("[rule:*.txt][current]")
+
+
 def test_filter_paths_by_rules_removes_matching_items():
     paths = ["Inbox/draft.txt", "Finance/invoice.pdf"]
 
@@ -144,11 +214,19 @@ def test_render_rules_prompt_includes_constraints():
     rules = PlanningRules(
         pinned_dirs=[["Finance", "Taxes"]],
         exclude_globs=["Inbox/**"],
-        mappings=[MappingRule(glob="*.pdf", priority=3, target=["Documents", "PDFs"])],
+        mappings=[
+            MappingRule(
+                glob="*.pdf",
+                priority=3,
+                source_globs=["Inbox/**"],
+                target=CURRENT_TARGET,
+            )
+        ],
     )
 
     prompt = render_rules_prompt(rules)
 
     assert "keep folder available: Finance/Taxes" in prompt
     assert "ignore paths matching Inbox/**" in prompt
-    assert "glob *.pdf [priority 3] must map to Documents/PDFs" in prompt
+    assert f"glob *.pdf [priority 3] must map to {CURRENT_TARGET}" in prompt
+    assert "glob *.pdf only applies under source Inbox/**" in prompt

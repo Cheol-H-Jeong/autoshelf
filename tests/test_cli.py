@@ -37,6 +37,7 @@ def test_cli_help_lists_expected_subcommands():
         "stats",
         "gui",
         "doctor",
+        "rules",
         "version",
     ]:
         assert name in output
@@ -112,6 +113,69 @@ mappings:
     assert completed.returncode == 0
     assert "Finance" in completed.stdout
     assert "Invoices" in completed.stdout
+
+
+def test_cli_rules_show_reports_normalized_rules(tmp_path):
+    (tmp_path / ".autoshelfrc.yaml").write_text(
+        """
+version: 1
+mappings:
+  - glob: "*.txt"
+    source_globs:
+      - Inbox/**
+    target: "@current"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "autoshelf", "rules", "show", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[1],
+        check=True,
+    )
+
+    payload = json.loads(completed.stdout)
+    assert payload["rules"]["mappings"][0]["target_mode"] == "current"
+    assert payload["rules"]["mappings"][0]["source_globs"] == ["Inbox/**"]
+
+
+def test_cli_rules_match_explains_current_target_mapping(tmp_path):
+    (tmp_path / ".autoshelfrc.yaml").write_text(
+        """
+version: 1
+mappings:
+  - glob: "*.txt"
+    source_globs:
+      - Inbox/**
+    target: "@current"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "autoshelf",
+            "rules",
+            "match",
+            str(tmp_path),
+            "Inbox/Notes/draft.txt",
+            "Archive/draft.txt",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[1],
+        check=True,
+    )
+
+    payload = json.loads(completed.stdout)
+    assert payload[0]["matched"] is True
+    assert payload[0]["target"] == ["Inbox", "Notes"]
+    assert payload[0]["target_mode"] == "current"
+    assert payload[1]["matched"] is False
 
 
 def test_cli_plan_skips_paths_excluded_by_rules_file(tmp_path):

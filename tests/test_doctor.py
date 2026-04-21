@@ -40,7 +40,11 @@ exclude_globs:
   - Inbox/**
 mappings:
   - glob: "*.pdf"
+    source_globs:
+      - Inbox/**
     target: Documents/PDFs
+  - glob: "*.txt"
+    target: "@current"
 """.strip(),
         encoding="utf-8",
     )
@@ -48,4 +52,10 @@ mappings:
     report = run_diagnostics(tmp_path)
 
     assert report["checks"]["rules_file_status"] == "ok"
-    assert report["rules"] == {"pinned_dirs": 1, "exclude_globs": 1, "mappings": 1}
+    assert report["rules"] == {
+        "pinned_dirs": 1,
+        "exclude_globs": 1,
+        "mappings": 2,
+        "source_scoped_mappings": 1,
+        "current_targets": 1,
+    }
