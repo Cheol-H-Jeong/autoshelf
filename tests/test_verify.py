@@ -36,6 +36,29 @@ def test_verify_root_accepts_clean_applied_tree(tmp_path):
     assert report.issues == []
 
 
+def test_verify_root_accepts_clean_tree_with_deduped_duplicate_target(tmp_path):
+    first = tmp_path / "incoming" / "draft.txt"
+    second = tmp_path / "copies" / "draft-copy.txt"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_text("hello", encoding="utf-8")
+    second.write_text("hello", encoding="utf-8")
+    apply_plan(
+        tmp_path,
+        [
+            _assignment("incoming/draft.txt", ["Docs"]),
+            _assignment("copies/draft-copy.txt", ["Archive"]),
+        ],
+        {"Docs": {}, "Archive": {}},
+        dry_run=False,
+    )
+
+    report = verify_root(tmp_path)
+
+    assert report.ok is True
+    assert report.issues == []
+
+
 def test_verify_root_detects_tampered_manifest_chain(tmp_path):
     source = tmp_path / "draft.txt"
     source.write_text("hello", encoding="utf-8")

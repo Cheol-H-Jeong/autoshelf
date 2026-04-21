@@ -80,6 +80,12 @@ def apply_plan(
         staging_dir=staging_dir,
         filesystem=active_filesystem,
     )
+    canonical_targets = _seed_canonical_targets(
+        root,
+        planned_entries,
+        active_filesystem,
+        conflict_policy=conflict_policy,
+    )
     moved: list[tuple[Path, Path]] = []
     created_shortcuts: list[Path] = []
     completed_entries = sum(1 for entry in planned_entries if entry.status == "applied")
@@ -121,6 +127,61 @@ def apply_plan(
                         staged_path="",
                     ) or entry
                     source = root / entry.path
+                    duplicate_target = _dedupe_target(
+                        entry,
+                        final_target,
+                        canonical_targets,
+                        active_filesystem,
+                    )
+                    if duplicate_target is not None and active_filesystem.exists(source):
+                        deduped_target = _apply_duplicate_entry(
+                            root,
+                            source,
+                            final_target,
+                            duplicate_target,
+                        )
+                        if deduped_target != duplicate_target:
+                            created_shortcuts.append(deduped_target)
+                        session.add(
+                            _transaction_record(
+                                root,
+                                run_identifier,
+                                sequence,
+                                "dedupe",
+                                source,
+                                deduped_target,
+                                "applied",
+                                details={
+                                    "canonical_target": str(duplicate_target),
+                                    "link_created": deduped_target != duplicate_target,
+                                },
+                            )
+                        )
+                        update_run_entry(
+                            plan_path,
+                            entry.path,
+                            status="applied",
+                            target_path=str(deduped_target.relative_to(root)),
+                            copy_stage="pending",
+                            staged_path="",
+                        )
+                        completed_entries += 1
+                        write_run_state(
+                            state_path,
+                            run_id=run_identifier,
+                            status="running",
+                            completed_entries=completed_entries,
+                            total_entries=total_entries,
+                        )
+                        if on_progress is not None:
+                            on_progress(
+                                "deduped",
+                                sequence,
+                                total_entries,
+                                entry.path,
+                                deduped_target,
+                            )
+                        continue
                     if (
                         conflict_policy == "skip"
                         and active_filesystem.exists(final_target)
@@ -178,6 +239,8 @@ def apply_plan(
                     )
                     if reconciled is None:
                         moved.append((source, final_target))
+                    if entry.source_hash:
+                        canonical_targets.setdefault(entry.source_hash, final_target)
                     session.add(
                         _transaction_record(
                             root, run_identifier, sequence, "move", source, final_target, "applied"
@@ -263,6 +326,8 @@ def _transaction_record(
     source: Path,
     target: Path,
     status: str,
+    *,
+    details: dict[str, object] | None = None,
 ) -> TransactionRecord:
     return TransactionRecord(
         root=str(root),
@@ -272,7 +337,7 @@ def _transaction_record(
         status=status,
         source_path=str(source),
         target_path=str(target),
-        details={},
+        details=details or {},
     )
 
 
@@ -291,6 +356,60 @@ def _create_entry_shortcut(root: Path, final_target: Path, extra: list[str]) -> 
         return create_shortcut(final_target, shortcut_path)
     except OSError:
         return copy_fallback(final_target, shortcut_path)
+
+
+def _seed_canonical_targets(
+    root: Path,
+    entries: list[RunPlanEntry],
+    filesystem: Filesystem,
+    *,
+    conflict_policy: str,
+) -> dict[str, Path]:
+    canonical_targets: dict[str, Path] = {}
+    for entry in entries:
+        if not entry.source_hash or entry.status != "applied":
+            continue
+        target = _target_for_entry(root, entry, conflict_policy)
+        if filesystem.exists(target) and filesystem.hash_file(target) == entry.source_hash:
+            canonical_targets.setdefault(entry.source_hash, target)
+    return canonical_targets
+
+
+def _dedupe_target(
+    entry: RunPlanEntry,
+    final_target: Path,
+    canonical_targets: dict[str, Path],
+    filesystem: Filesystem,
+) -> Path | None:
+    if not isinstance(filesystem, LocalFilesystem):
+        return None
+    if not entry.source_hash:
+        return None
+    canonical_target = canonical_targets.get(entry.source_hash)
+    if canonical_target is None:
+        return None
+    if not filesystem.exists(canonical_target):
+        return None
+    if filesystem.hash_file(canonical_target) != entry.source_hash:
+        return None
+    if canonical_target == final_target:
+        return canonical_target
+    return canonical_target
+
+
+def _apply_duplicate_entry(
+    root: Path,
+    source: Path,
+    final_target: Path,
+    canonical_target: Path,
+) -> Path:
+    if canonical_target == final_target:
+        source.unlink()
+        return final_target
+    final_target.parent.mkdir(parents=True, exist_ok=True)
+    duplicate_target = create_shortcut(canonical_target, final_target)
+    source.unlink()
+    return duplicate_target
 
 
 def _raise_for_unrecoverable_missing_source(

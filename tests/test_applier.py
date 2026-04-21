@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
+from sqlalchemy import select
 
 import autoshelf.shortcuts as shortcuts_module
 from autoshelf.applier import ApplyRecoveryError, apply_plan, load_run_plan
@@ -15,6 +16,7 @@ from autoshelf.apply_state import (
     write_run_plan,
     write_run_state,
 )
+from autoshelf.db import Database, TransactionRecord
 from autoshelf.filesystem import FakeFilesystem
 from autoshelf.manifest import write_manifests
 from autoshelf.planner.models import PlannerAssignment
@@ -51,6 +53,82 @@ def test_apply_and_undo_round_trip(tmp_path):
     undone = undo_last_apply(tmp_path)
     assert undone.undone >= 1
     assert source.exists()
+
+
+def test_apply_collapses_duplicate_hashes_into_single_canonical_copy(tmp_path):
+    first = tmp_path / "incoming" / "draft.txt"
+    second = tmp_path / "copies" / "draft-copy.txt"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_text("hello", encoding="utf-8")
+    second.write_text("hello", encoding="utf-8")
+
+    result = apply_plan(
+        tmp_path,
+        [
+            _assignment("incoming/draft.txt", ["Docs"]),
+            _assignment("copies/draft-copy.txt", ["Archive"]),
+        ],
+        {"Docs": {}, "Archive": {}},
+        dry_run=False,
+    )
+
+    canonical = tmp_path / "Docs" / "draft.txt"
+    duplicate = tmp_path / "Archive" / "draft-copy.txt"
+    assert canonical.exists()
+    assert duplicate.exists()
+    assert duplicate.is_symlink()
+    assert duplicate.resolve() == canonical.resolve()
+    assert not first.exists()
+    assert not second.exists()
+    assert result.moved == [(first, canonical)]
+    assert result.shortcuts == [duplicate]
+
+    with Database(tmp_path / ".autoshelf" / "autoshelf.sqlite").session() as session:
+        records = json.dumps(
+            [
+                {
+                    "action": record.action,
+                    "target_path": record.target_path,
+                    "details": record.details,
+                }
+                for record in session.scalars(
+                    select(TransactionRecord).where(TransactionRecord.run_id == result.run_id)
+                )
+            ],
+            ensure_ascii=False,
+        )
+    assert '"action": "dedupe"' in records
+    assert '"canonical_target"' in records
+
+
+def test_undo_restores_duplicate_sources_after_deduped_apply(tmp_path):
+    first = tmp_path / "incoming" / "draft.txt"
+    second = tmp_path / "copies" / "draft-copy.txt"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_text("hello", encoding="utf-8")
+    second.write_text("hello", encoding="utf-8")
+
+    result = apply_plan(
+        tmp_path,
+        [
+            _assignment("incoming/draft.txt", ["Docs"]),
+            _assignment("copies/draft-copy.txt", ["Archive"]),
+        ],
+        {"Docs": {}, "Archive": {}},
+        dry_run=False,
+    )
+
+    undone = undo_last_apply(tmp_path, run_id=result.run_id)
+
+    assert undone.undone == 2
+    assert first.exists()
+    assert second.exists()
+    assert first.read_text(encoding="utf-8") == "hello"
+    assert second.read_text(encoding="utf-8") == "hello"
+    assert not (tmp_path / "Docs" / "draft.txt").exists()
+    assert not (tmp_path / "Archive" / "draft-copy.txt").exists()
 
 
 def test_apply_cross_device_copy_verifies_hash(tmp_path, monkeypatch):

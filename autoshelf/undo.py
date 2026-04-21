@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -44,6 +45,19 @@ def undo_last_apply(
             source = Path(record.source_path)
             planned.append((target, source))
             if dry_run:
+                continue
+            if record.action == "dedupe":
+                canonical = Path(str(record.details.get("canonical_target", "")))
+                link_created = bool(record.details.get("link_created", False))
+                if not canonical.exists():
+                    conflicts.append(str(canonical))
+                    continue
+                if link_created and (target.exists() or target.is_symlink()):
+                    target.unlink()
+                source.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(canonical, source)
+                record.status = "reverted"
+                undone += 1
                 continue
             if record.action == "shortcut":
                 if target.exists() or target.is_symlink():
