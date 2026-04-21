@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.22
+
+- Added a full-plan review stage after initial classification so autoshelf can revisit the proposed tree with the whole corpus in view, collapse weak workflow buckets, and keep stronger repeated business parents.
+- Rewrote planner summaries into concise folder rationales that now flow into the review UI and manifest, giving operators an auditable explanation for why each file landed where it did.
+- Expanded planner regression coverage and docs around the new review-stage refinement path, including Anthropic payload checks for the full-assignment review call.
+
 ## v1.0.21
 
 - Fixed the demo Apply tab and tray integration so GUI apply completion now lands on a deterministic finished signal instead of racing on a 100% progress update, keeping the offscreen smoke gate stable.
