@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.7
+
+- Added a numbered config migration framework so legacy unversioned `config.toml` files are normalized and upgraded on load instead of failing strict validation.
+- Added `--progress json` to stream JSONL progress events and a final JSON result line on stdout for CLI automation around planning, apply, export, import, verify, and diagnostics.
+- Documented the new machine-readable progress mode and schema-versioned config behavior in the README, with regression coverage for both features.
+
 ## v1.0.6
 
 - Improved planner briefs by including each file's immediate parent folder name in the classification payload and summary text, preserving signals from staging folders like receipts, clients, or lecture materials.
