@@ -8,7 +8,7 @@ from loguru import logger
 from sqlalchemy import select
 
 from autoshelf.__init__ import __version__
-from autoshelf.applier import apply_plan
+from autoshelf.applier import ApplyInterruptedError, apply_plan
 from autoshelf.bundle import export_bundle, import_bundle
 from autoshelf.config import AppConfig
 from autoshelf.db import ContextRecord, Database, FileRecord, default_db_path
@@ -115,25 +115,29 @@ def main() -> None:
     if args.command == "apply":
         reporter.emit("apply.plan.started", message=str(root))
         result = _plan(root, config, resume=False, reporter=reporter)
-        outcome = apply_plan(
-            root,
-            result.assignments,
-            result.tree,
-            dry_run=args.dry_run,
-            db_path=default_db_path(root),
-            run_id=args.resume,
-            resume=bool(args.resume),
-            conflict_policy=args.policy,
-            on_progress=lambda phase, current, total, path, target: reporter.emit(
-                f"apply.{phase}",
-                current=current,
-                total=total,
-                data={
-                    "path": path,
-                    "target": str(target.relative_to(root)) if target is not None else None,
-                },
-            ),
-        )
+        try:
+            outcome = apply_plan(
+                root,
+                result.assignments,
+                result.tree,
+                dry_run=args.dry_run,
+                db_path=default_db_path(root),
+                run_id=args.resume,
+                resume=bool(args.resume),
+                conflict_policy=args.policy,
+                on_progress=lambda phase, current, total, path, target: reporter.emit(
+                    f"apply.{phase}",
+                    current=current,
+                    total=total,
+                    data={
+                        "path": path,
+                        "target": str(target.relative_to(root)) if target is not None else None,
+                    },
+                ),
+            )
+        except ApplyInterruptedError as exc:
+            reporter.emit("apply.interrupted", message=str(exc))
+            raise SystemExit(130) from exc
         record_event("apply", {"moved": len(outcome.moved), **result.usage.model_dump()})
         reporter.emit("apply.completed", data={"moved": len(outcome.moved)})
         reporter.print_result({"run_id": outcome.run_id, "dry_run": outcome.dry_run})

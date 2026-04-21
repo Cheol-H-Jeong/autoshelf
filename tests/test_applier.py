@@ -5,6 +5,13 @@ from pathlib import Path
 
 import autoshelf.shortcuts as shortcuts_module
 from autoshelf.applier import apply_plan, load_run_plan
+from autoshelf.apply_state import (
+    run_staging_dir,
+    run_state_path,
+    update_run_entry,
+    write_run_plan,
+    write_run_state,
+)
 from autoshelf.manifest import write_manifests
 from autoshelf.planner.models import PlannerAssignment
 from autoshelf.shortcuts import create_shortcut
@@ -45,20 +52,23 @@ def test_apply_and_undo_round_trip(tmp_path):
 def test_apply_cross_device_copy_verifies_hash(tmp_path, monkeypatch):
     source = tmp_path / "draft.txt"
     source.write_text("hello", encoding="utf-8")
-    original_rename = Path.rename
+    original_replace = Path.replace
 
     def raise_exdev(self: Path, target: Path):
-        raise OSError(errno.EXDEV, "cross-device")
+        if self == source:
+            raise OSError(errno.EXDEV, "cross-device")
+        return original_replace(self, target)
 
-    monkeypatch.setattr(Path, "rename", raise_exdev)
+    monkeypatch.setattr(Path, "replace", raise_exdev)
     try:
         result = apply_plan(
             tmp_path, [_assignment("draft.txt", ["문서"])], {"문서": {}}, dry_run=False
         )
     finally:
-        monkeypatch.setattr(Path, "rename", original_rename)
+        monkeypatch.setattr(Path, "replace", original_replace)
     assert result.moved[0][1].exists()
     assert not source.exists()
+    assert not run_staging_dir(tmp_path, result.run_id).exists()
 
 
 def test_apply_collision_appends_counter(tmp_path):
@@ -86,6 +96,43 @@ def test_apply_resume_skips_completed_entries(tmp_path):
     plan = load_run_plan(tmp_path / ".autoshelf" / "runs" / f"{result.run_id}.plan.jsonl")
     assert resumed.resumed is True
     assert plan[0]["status"] == "applied"
+
+
+def test_apply_resume_reconciles_completed_move_before_shortcut(tmp_path):
+    source = tmp_path / "draft.txt"
+    source.write_text("hello", encoding="utf-8")
+    assignment = _assignment("draft.txt", ["문서"], [["문서", "참고"]])
+    run_id = "resume-run"
+    plan_path = write_run_plan(tmp_path, [assignment], run_id)
+    moved_target = tmp_path / "문서" / "draft.txt"
+    moved_target.parent.mkdir(parents=True, exist_ok=True)
+    source.replace(moved_target)
+    update_run_entry(plan_path, "draft.txt", status="running", target_path="문서/draft.txt")
+    write_run_state(
+        run_state_path(tmp_path, run_id),
+        run_id=run_id,
+        status="interrupted",
+        current_path="draft.txt",
+        completed_entries=0,
+        total_entries=1,
+        last_error="simulated interruption",
+    )
+
+    result = apply_plan(
+        tmp_path,
+        [assignment],
+        {"문서": {"참고": {}}},
+        dry_run=False,
+        run_id=run_id,
+        resume=True,
+    )
+
+    assert result.resumed is True
+    assert moved_target.exists()
+    assert (tmp_path / "문서" / "참고" / "draft.txt").exists()
+    assert not source.exists()
+    state_payload = run_state_path(tmp_path, run_id).read_text(encoding="utf-8")
+    assert '"status": "completed"' in state_payload
 
 
 def test_apply_skip_policy_leaves_existing_target(tmp_path):

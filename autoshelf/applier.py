@@ -1,13 +1,24 @@
 from __future__ import annotations
 
 import errno
-import json
 import shutil
+import signal
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from loguru import logger
+
+from autoshelf.apply_state import (
+    RunPlanEntry,
+    load_run_plan_entries,
+    run_staging_dir,
+    run_state_path,
+    update_run_entry,
+    write_run_plan,
+    write_run_state,
+)
 from autoshelf.db import Database, TransactionRecord, default_db_path
 from autoshelf.manifest import write_manifests
 from autoshelf.planner.models import PlannerAssignment
@@ -22,6 +33,10 @@ class ApplyResult:
     shortcuts: list[Path]
     dry_run: bool
     resumed: bool = False
+
+
+class ApplyInterruptedError(RuntimeError):
+    pass
 
 
 def apply_plan(
@@ -44,79 +59,160 @@ def apply_plan(
 
     plan_path = write_run_plan(root, assignments, run_identifier)
     database = Database(db_path or default_db_path(root))
-    planned_entries = load_run_plan(plan_path)
+    planned_entries = load_run_plan_entries(plan_path)
     total_entries = len(planned_entries)
+    state_path = run_state_path(root, run_identifier)
+    staging_dir = run_staging_dir(root, run_identifier)
     moved: list[tuple[Path, Path]] = []
     created_shortcuts: list[Path] = []
-    with database.session() as session:
-        for sequence, entry in enumerate(planned_entries, start=1):
-            if resume and entry.get("status") == "applied":
-                if on_progress is not None:
-                    on_progress("resume-skip", sequence, total_entries, entry["path"], None)
-                continue
-            source = root / entry["path"]
-            target_dir = _safe_target_dir(root, entry["primary_dir"])
-            target_dir.mkdir(parents=True, exist_ok=True)
-            target = _resolve_target(target_dir / Path(entry["path"]).name, conflict_policy)
-            if conflict_policy == "skip" and target.exists():
-                _update_plan_status(
-                    plan_path, entry["path"], "skipped", str(target.relative_to(root))
-                )
-                session.add(
-                    _transaction_record(
-                        root, run_identifier, sequence, "move", source, target, "skipped"
-                    )
-                )
-                if on_progress is not None:
-                    on_progress("skipped", sequence, total_entries, entry["path"], target)
-                continue
-            if not source.exists():
-                _update_plan_status(plan_path, entry["path"], "skipped")
-                session.add(
-                    _transaction_record(
-                        root, run_identifier, sequence, "move", source, target, "skipped"
-                    )
-                )
-                if on_progress is not None:
-                    on_progress("missing-source", sequence, total_entries, entry["path"], target)
-                continue
-            final_target = _move_file(source, target)
-            _verify_move(source, final_target, entry["source_hash"])
-            moved.append((source, final_target))
-            _update_plan_status(
-                plan_path, entry["path"], "applied", str(final_target.relative_to(root))
+    completed_entries = sum(1 for entry in planned_entries if entry.status == "applied")
+    write_run_state(
+        state_path,
+        run_id=run_identifier,
+        status="running",
+        completed_entries=completed_entries,
+        total_entries=total_entries,
+    )
+    try:
+        with _interrupt_guard(
+            lambda current_path: write_run_state(
+                state_path,
+                run_id=run_identifier,
+                status="interrupted",
+                current_path=current_path,
+                completed_entries=completed_entries,
+                total_entries=total_entries,
+                last_error="apply interrupted by signal",
             )
-            session.add(
-                _transaction_record(
-                    root, run_identifier, sequence, "move", source, final_target, "applied"
-                )
-            )
-            if on_progress is not None:
-                on_progress("moved", sequence, total_entries, entry["path"], final_target)
-            for extra in entry["also_relevant"]:
-                shortcut_dir = _safe_target_dir(root, extra)
-                shortcut_dir.mkdir(parents=True, exist_ok=True)
-                shortcut_name = f"{final_target.name}.lnk" if _windows_path() else final_target.name
-                shortcut_path = shortcut_dir / shortcut_name
-                try:
-                    shortcut = create_shortcut(final_target, shortcut_path)
-                except OSError:
-                    shortcut = copy_fallback(final_target, shortcut_path)
-                created_shortcuts.append(shortcut)
-                sequence += 1
-                session.add(
-                    _transaction_record(
-                        root,
-                        run_identifier,
-                        sequence,
-                        "shortcut",
+        ) as interrupt_guard:
+            with database.session() as session:
+                sequence = 0
+                for entry in planned_entries:
+                    sequence += 1
+                    if resume and entry.status == "applied":
+                        if on_progress is not None:
+                            on_progress("resume-skip", sequence, total_entries, entry.path, None)
+                        continue
+                    interrupt_guard.check(entry.path)
+                    final_target = _target_for_entry(root, entry, conflict_policy)
+                    entry = update_run_entry(
+                        plan_path,
+                        entry.path,
+                        status="running",
+                        target_path=str(final_target.relative_to(root)),
+                    ) or entry
+                    source = root / entry.path
+                    if conflict_policy == "skip" and final_target.exists() and source.exists():
+                        update_run_entry(plan_path, entry.path, status="skipped")
+                        session.add(
+                            _transaction_record(
+                                root,
+                                run_identifier,
+                                sequence,
+                                "move",
+                                source,
+                                final_target,
+                                "skipped",
+                            )
+                        )
+                        if on_progress is not None:
+                            on_progress(
+                                "skipped",
+                                sequence,
+                                total_entries,
+                                entry.path,
+                                final_target,
+                            )
+                        continue
+                    reconciled = _reconcile_completed_move(root, entry, final_target)
+                    if reconciled is None and not source.exists():
+                        update_run_entry(plan_path, entry.path, status="skipped")
+                        session.add(
+                            _transaction_record(
+                                root,
+                                run_identifier,
+                                sequence,
+                                "move",
+                                source,
+                                final_target,
+                                "skipped",
+                            )
+                        )
+                        if on_progress is not None:
+                            on_progress(
+                                "missing-source", sequence, total_entries, entry.path, final_target
+                            )
+                        continue
+                    final_target = reconciled or _move_file(source, final_target, staging_dir)
+                    _verify_move(
+                        source,
                         final_target,
-                        shortcut,
-                        "applied",
+                        entry.source_hash,
+                        reconciled=reconciled is not None,
                     )
-                )
-                if on_progress is not None:
-                    on_progress("shortcut", sequence, total_entries, entry["path"], shortcut)
+                    if reconciled is None:
+                        moved.append((source, final_target))
+                    session.add(
+                        _transaction_record(
+                            root, run_identifier, sequence, "move", source, final_target, "applied"
+                        )
+                    )
+                    if on_progress is not None:
+                        on_progress("moved", sequence, total_entries, entry.path, final_target)
+                    interrupt_guard.check(entry.path)
+                    for extra in entry.also_relevant:
+                        sequence += 1
+                        shortcut = _create_entry_shortcut(root, final_target, extra)
+                        created_shortcuts.append(shortcut)
+                        session.add(
+                            _transaction_record(
+                                root,
+                                run_identifier,
+                                sequence,
+                                "shortcut",
+                                final_target,
+                                shortcut,
+                                "applied",
+                            )
+                        )
+                        if on_progress is not None:
+                            on_progress("shortcut", sequence, total_entries, entry.path, shortcut)
+                        interrupt_guard.check(entry.path)
+                    update_run_entry(
+                        plan_path,
+                        entry.path,
+                        status="applied",
+                        target_path=str(final_target.relative_to(root)),
+                    )
+                    completed_entries += 1
+                    write_run_state(
+                        state_path,
+                        run_id=run_identifier,
+                        status="running",
+                        completed_entries=completed_entries,
+                        total_entries=total_entries,
+                    )
+    except ApplyInterruptedError:
+        logger.warning("apply interrupted for run {}", run_identifier)
+        raise
+    except Exception as exc:
+        write_run_state(
+            state_path,
+            run_id=run_identifier,
+            status="interrupted",
+            completed_entries=completed_entries,
+            total_entries=total_entries,
+            last_error=str(exc),
+        )
+        raise
+    _cleanup_staging_dir(staging_dir)
+    write_run_state(
+        state_path,
+        run_id=run_identifier,
+        status="completed",
+        completed_entries=completed_entries,
+        total_entries=total_entries,
+    )
     write_manifests(root, tree, assignments)
     return ApplyResult(
         run_id=run_identifier,
@@ -127,58 +223,8 @@ def apply_plan(
     )
 
 
-def write_run_plan(root: Path, assignments: list[PlannerAssignment], run_id: str) -> Path:
-    plan_path = root / ".autoshelf" / "runs" / f"{run_id}.plan.jsonl"
-    if plan_path.exists():
-        return plan_path
-    plan_path.parent.mkdir(parents=True, exist_ok=True)
-    lines = []
-    for assignment in assignments:
-        source = root / assignment.path
-        payload = {
-            "path": assignment.path,
-            "primary_dir": assignment.primary_dir,
-            "also_relevant": assignment.also_relevant,
-            "summary": assignment.summary,
-            "confidence": assignment.confidence,
-            "fallback": assignment.fallback,
-            "status": "planned",
-            "source_hash": _hash_file(source) if source.exists() else "",
-        }
-        lines.append(json.dumps(payload, ensure_ascii=False))
-    temp_path = plan_path.with_suffix(".tmp")
-    temp_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
-    temp_path.replace(plan_path)
-    return plan_path
-
-
 def load_run_plan(plan_path: Path) -> list[dict[str, object]]:
-    if not plan_path.exists():
-        return []
-    return [
-        json.loads(line)
-        for line in plan_path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-
-
-def _update_plan_status(
-    plan_path: Path, source_path: str, status: str, target_path: str | None = None
-) -> None:
-    entries = load_run_plan(plan_path)
-    for entry in entries:
-        if entry["path"] == source_path:
-            entry["status"] = status
-            if target_path is not None:
-                entry["target_path"] = target_path
-            break
-    temp_path = plan_path.with_suffix(".tmp")
-    temp_path.write_text(
-        "\n".join(json.dumps(entry, ensure_ascii=False) for entry in entries)
-        + ("\n" if entries else ""),
-        encoding="utf-8",
-    )
-    temp_path.replace(plan_path)
+    return [entry.model_dump(mode="json") for entry in load_run_plan_entries(plan_path)]
 
 
 def _transaction_record(
@@ -232,29 +278,101 @@ def _dedupe_target(target: Path) -> Path:
         counter += 1
 
 
-def _move_file(source: Path, target: Path) -> Path:
-    if target.exists():
-        target.unlink()
+def _target_for_entry(root: Path, entry: RunPlanEntry, conflict_policy: str) -> Path:
+    if entry.target_path:
+        return root / entry.target_path
+    target_dir = _safe_target_dir(root, entry.primary_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    return _resolve_target(target_dir / Path(entry.path).name, conflict_policy)
+
+
+def _move_file(source: Path, target: Path, staging_dir: Path) -> Path:
     try:
-        source.rename(target)
+        source.replace(target)
         return target
     except OSError as exc:
         if exc.errno != errno.EXDEV:
             raise
-    shutil.copy2(source, target)
-    if _hash_file(source) != _hash_file(target):
-        raise ValueError("copy verification failed")
+    staged_target = _stage_copy(source, target, staging_dir)
+    staged_target.replace(target)
     source.unlink()
     return target
 
 
-def _verify_move(source: Path, target: Path, source_hash: str) -> None:
-    if source.exists():
+def _stage_copy(source: Path, target: Path, staging_dir: Path) -> Path:
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    staged_target = staging_dir / f"{uuid.uuid4().hex}{target.suffix}.part"
+    shutil.copy2(source, staged_target)
+    if _hash_file(source) != _hash_file(staged_target):
+        raise ValueError("copy verification failed")
+    return staged_target
+
+
+def _reconcile_completed_move(root: Path, entry: RunPlanEntry, target: Path) -> Path | None:
+    source = root / entry.path
+    if source.exists() or not target.exists():
+        return None
+    if entry.source_hash and _hash_file(target) != entry.source_hash:
+        return None
+    logger.info("resuming completed move for {}", entry.path)
+    return target
+
+
+def _create_entry_shortcut(root: Path, final_target: Path, extra: list[str]) -> Path:
+    shortcut_dir = _safe_target_dir(root, extra)
+    shortcut_dir.mkdir(parents=True, exist_ok=True)
+    shortcut_name = f"{final_target.name}.lnk" if _windows_path() else final_target.name
+    shortcut_path = shortcut_dir / shortcut_name
+    try:
+        return create_shortcut(final_target, shortcut_path)
+    except OSError:
+        return copy_fallback(final_target, shortcut_path)
+
+
+def _verify_move(source: Path, target: Path, source_hash: str, *, reconciled: bool = False) -> None:
+    if source.exists() and not reconciled:
         raise ValueError(f"source still exists after move: {source}")
     if not target.exists():
         raise ValueError(f"target missing after move: {target}")
     if source_hash and _hash_file(target) != source_hash:
         raise ValueError("target hash mismatch after move")
+
+
+def _cleanup_staging_dir(staging_dir: Path) -> None:
+    if staging_dir.exists():
+        shutil.rmtree(staging_dir)
+
+
+@dataclass(slots=True)
+class _InterruptGuard:
+    on_interrupt: Callable[[str], None]
+    interrupted: bool = False
+
+    def check(self, current_path: str) -> None:
+        if not self.interrupted:
+            return
+        self.on_interrupt(current_path)
+        raise ApplyInterruptedError(current_path)
+
+
+class _interrupt_guard:
+    def __init__(self, on_interrupt: Callable[[str], None]) -> None:
+        self._guard = _InterruptGuard(on_interrupt=on_interrupt)
+        self._previous_handlers: dict[int, object] = {}
+
+    def __enter__(self) -> _InterruptGuard:
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            self._previous_handlers[sig] = signal.getsignal(sig)
+            signal.signal(sig, self._handler)
+        return self._guard
+
+    def __exit__(self, exc_type, exc, exc_tb) -> None:
+        for sig, previous in self._previous_handlers.items():
+            signal.signal(sig, previous)
+
+    def _handler(self, signum: int, frame: object) -> None:
+        logger.warning("received signal {} during apply", signum)
+        self._guard.interrupted = True
 
 
 def _windows_path() -> bool:
