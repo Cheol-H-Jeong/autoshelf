@@ -19,6 +19,7 @@ from autoshelf.planner.pipeline import PlannerPipeline
 from autoshelf.scanner import scan_directory
 from autoshelf.stats import collect_stats, record_event
 from autoshelf.undo import undo_last_apply
+from autoshelf.verify import verify_exit_code, verify_root
 
 
 def main() -> None:
@@ -41,6 +42,10 @@ def main() -> None:
         report = run_diagnostics(Path(args.root).resolve() if getattr(args, "root", None) else None)
         print(json.dumps(report, ensure_ascii=False, indent=2))
         raise SystemExit(doctor_exit_code(report))
+    if args.command == "verify":
+        report = verify_root(Path(args.root).expanduser().resolve())
+        print(json.dumps(report.model_dump(mode="json"), ensure_ascii=False, indent=2))
+        raise SystemExit(verify_exit_code(report))
 
     root = Path(args.root).expanduser().resolve()
     if getattr(args, "exclude", None):
@@ -131,6 +136,9 @@ def _build_parser() -> argparse.ArgumentParser:
     history.add_argument("root")
     history.add_argument("--limit", type=int, default=20)
     history.add_argument("--json", action="store_true", default=False)
+
+    verify = subparsers.add_parser("verify")
+    verify.add_argument("root")
 
     subparsers.add_parser("stats")
     subparsers.add_parser("gui")
