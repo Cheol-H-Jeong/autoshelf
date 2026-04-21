@@ -7,6 +7,7 @@ from pathlib import Path
 
 from autoshelf.applier import apply_plan
 from autoshelf.apply_state import run_state_path, write_run_plan, write_run_state
+from autoshelf.config import AppConfig
 from autoshelf.planner.models import PlannerAssignment
 
 
@@ -32,6 +33,7 @@ def test_cli_help_lists_expected_subcommands():
         "verify",
         "export",
         "import",
+        "config",
         "stats",
         "gui",
         "doctor",
@@ -156,6 +158,52 @@ def test_cli_plan_progress_json_streams_events_and_result(tmp_path):
     assert events[-1]["event"] == "result"
     assert "tree" in events[-1]["payload"]
     assert any(event.get("phase") == "plan.parse" for event in events[:-1])
+
+
+def test_cli_config_show_reports_pending_migrations(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('theme = "MIDNIGHT"\n', encoding="utf-8")
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "autoshelf", "--config", str(config_path), "config", "show"],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[1],
+        check=True,
+    )
+
+    payload = json.loads(completed.stdout)
+    assert payload["schema_version"] == 0
+    assert payload["up_to_date"] is False
+    assert [step["version"] for step in payload["pending_migrations"]] == [1, 2]
+
+
+def test_cli_config_migrate_writes_backup_and_updated_config(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('theme = "MIDNIGHT"\n', encoding="utf-8")
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "autoshelf",
+            "--config",
+            str(config_path),
+            "config",
+            "migrate",
+            "--write",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[1],
+        check=True,
+    )
+
+    payload = json.loads(completed.stdout)
+    assert payload["updated"] is True
+    assert payload["backup_path"]
+    assert Path(payload["backup_path"]).exists()
+    assert AppConfig.load(config_path).schema_version > 0
 
 
 def test_cli_apply_progress_json_streams_events_and_result(tmp_path):

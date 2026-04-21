@@ -11,6 +11,7 @@ from autoshelf.__init__ import __version__
 from autoshelf.applier import ApplyInterruptedError, apply_plan
 from autoshelf.bundle import export_bundle, import_bundle
 from autoshelf.config import AppConfig
+from autoshelf.config_admin import inspect_config, migrate_config_file
 from autoshelf.db import ContextRecord, Database, FileRecord, default_db_path
 from autoshelf.doctor import doctor_exit_code, run_diagnostics
 from autoshelf.logging_utils import configure_logging
@@ -29,10 +30,10 @@ from autoshelf.verify import verify_exit_code, verify_root
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
-    config = AppConfig.load(Path(args.config) if args.config else None)
     configure_logging(args.log_level)
     reporter = ProgressReporter(args.command or "gui", args.progress)
     if args.command is None or args.command == "gui":
+        config = AppConfig.load(Path(args.config) if args.config else None)
         from autoshelf.gui.app import launch_gui
 
         launch_gui(test_mode=False)
@@ -43,6 +44,24 @@ def main() -> None:
     if args.command == "stats":
         reporter.print_result(collect_stats())
         return
+    if args.command == "config":
+        config_path = Path(args.config) if args.config else None
+        if args.config_command == "show":
+            reporter.print_result(inspect_config(config_path).model_dump(mode="json"))
+            return
+        if args.config_command == "migrate":
+            reporter.emit("config.migrate.started")
+            result = migrate_config_file(
+                config_path,
+                write=args.write,
+                create_backup=not args.no_backup,
+            )
+            reporter.emit(
+                "config.migrate.completed",
+                data={"updated": result.updated, "backup_path": result.backup_path},
+            )
+            reporter.print_result(result.model_dump(mode="json"))
+            return
     if args.command == "doctor":
         reporter.emit("doctor.started")
         report = run_diagnostics(Path(args.root).resolve() if getattr(args, "root", None) else None)
@@ -89,6 +108,7 @@ def main() -> None:
         reporter.print_result(payload)
         return
 
+    config = AppConfig.load(Path(args.config) if args.config else None)
     root = Path(args.root).expanduser().resolve()
     rules = load_planning_rules(root)
     if getattr(args, "exclude", None):
@@ -248,6 +268,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("stats")
     subparsers.add_parser("gui")
+    config_parser = subparsers.add_parser("config")
+    config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
+    config_subparsers.add_parser("show")
+    config_migrate = config_subparsers.add_parser("migrate")
+    config_migrate.add_argument("--write", action="store_true", default=False)
+    config_migrate.add_argument("--no-backup", action="store_true", default=False)
     doctor = subparsers.add_parser("doctor")
     doctor.add_argument("root", nargs="?")
     subparsers.add_parser("version")

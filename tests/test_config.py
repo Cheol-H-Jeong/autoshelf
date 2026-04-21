@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from autoshelf.config import AppConfig
+from autoshelf.config_admin import inspect_config, migrate_config_file
 from autoshelf.config_migrations import LATEST_CONFIG_VERSION, migrate_config_data
 
 
@@ -65,3 +68,45 @@ def test_migrate_config_data_is_idempotent():
     assert migrated.to_version == LATEST_CONFIG_VERSION
     assert migrated.applied_versions == []
     assert migrated.data["theme"] == "dark"
+
+
+def test_inspect_config_reports_pending_migrations(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('theme = "dark"\n', encoding="utf-8")
+
+    report = inspect_config(config_path)
+
+    assert report.exists is True
+    assert report.schema_version == 0
+    assert report.latest_version == LATEST_CONFIG_VERSION
+    assert [step.version for step in report.pending_migrations] == [1, 2]
+    assert report.up_to_date is False
+
+
+def test_migrate_config_file_writes_backup_and_upgraded_config(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+theme = "MIDNIGHT"
+
+[llm]
+prompt_cache_enabled = "off"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    report = migrate_config_file(config_path, write=True)
+
+    assert report.updated is True
+    assert report.from_version == 0
+    assert report.to_version == LATEST_CONFIG_VERSION
+    assert [step.version for step in report.applied_migrations] == [1, 2]
+    assert report.backup_path is not None
+    backup_path = Path(report.backup_path)
+    assert backup_path.exists()
+    assert 'theme = "MIDNIGHT"' in backup_path.read_text(encoding="utf-8")
+
+    persisted = AppConfig.load(config_path)
+    assert persisted.schema_version == LATEST_CONFIG_VERSION
+    assert persisted.theme == "system"
+    assert persisted.llm.prompt_cache_enabled is False

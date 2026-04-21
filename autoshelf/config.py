@@ -5,6 +5,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from autoshelf.config_migrations import LATEST_CONFIG_VERSION, migrate_config_data
+from autoshelf.config_migrations.models import MigrationResult
 from autoshelf.paths import config_dir
 
 
@@ -61,21 +62,31 @@ class AppConfig(BaseModel):
         config_path = path or cls.default_path()
         if not config_path.exists():
             return cls()
-        migration = migrate_config_data(_parse_toml(config_path))
+        migration = load_raw_config(config_path)
         return cls.model_validate(migration.data)
 
     def save(self, path: Path | None = None) -> Path:
         config_path = path or self.default_path()
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(_to_toml(self.model_dump()), encoding="utf-8")
+        write_config_text(config_path, _to_toml(self.model_dump()))
         return config_path
 
 
-def _parse_toml(path: Path) -> dict[str, object]:
+def load_raw_config(path: Path) -> MigrationResult:
+    return migrate_config_data(parse_toml(path))
+
+
+def parse_toml(path: Path) -> dict[str, object]:
     import tomllib
 
     with path.open("rb") as handle:
         return tomllib.load(handle)
+
+
+def write_config_text(path: Path, content: str) -> None:
+    temp_path = path.with_suffix(".tmp")
+    temp_path.write_text(content, encoding="utf-8")
+    temp_path.replace(path)
 
 
 def _to_toml(data: dict[str, object], prefix: str = "") -> str:
