@@ -56,8 +56,9 @@ python -m autoshelf preview /srv/incoming
 
 Planner context signals:
 
-- Autoshelf reads the file name, parsed head text, immediate parent folder, and full relative parent path before it proposes folders.
+- Autoshelf reads the file name, parsed head text, immediate parent folder, full relative parent path, and a derived meaningful parent hint before it proposes folders.
 - If two files have the same content hash, the planner brief marks them as part of the same duplicate group so the reviewer can keep related files together.
+- Anthropic runs reuse one cacheable shared prompt bundle that contains the few-shot examples, live rules, and `FOLDER_GUIDE.md`, which keeps chunked planning cheaper and more consistent across a full run.
 - In offline mode, those same signals are used locally to recognize stronger business buckets such as invoices, receipts, study materials, screenshots, and customer-specific parent folders.
 
 Apply and audit:
