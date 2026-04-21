@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.15
+
+- Upgraded the Linux release bundle to vendor the runtime dependencies already installed on the release builder, add an isolated bootstrap launcher, and verify the packaged install path before publishing the tarball.
+- Hardened the packaging build driver around real-world distribution needs with build metadata for launcher/runtime contents, a portable `install.sh`, and regression coverage for end-to-end installer verification.
+- Updated the release workflow, packaging Makefile targets, and README so tagged builds now run the verified Linux bundle path consistently and document when to use the tarball versus `pipx install '.[all]'`.
+
 ## v1.0.14
 
 - Enriched planner briefs with each file's relative parent path and duplicate-group size so both Anthropic planning and offline planning see stronger ancestry context than a bare filename and immediate parent alone.
