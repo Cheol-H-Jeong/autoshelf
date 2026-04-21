@@ -67,6 +67,8 @@ python -m autoshelf apply /srv/incoming --policy append-counter
 python -m autoshelf verify /srv/incoming
 ```
 
+If multiple files have the same content hash, autoshelf now moves one canonical copy and turns the later duplicates into links at their planned destinations. That keeps the visible taxonomy intact without paying storage twice, and `undo` restores the original duplicate sources if the operator rolls the run back.
+
 Desktop shortcuts in the GUI:
 
 - `F5` reruns the scan preview from Home.
@@ -206,7 +208,7 @@ python -m autoshelf rules match /path/to/root Inbox/Notes/draft.txt Archive/draf
 
 ## Preview and Verification
 
-`autoshelf preview` creates `.autoshelf/preview/` using symlinks only. It is safe to inspect, index, or open from a file browser because it does not move the live files.
+`autoshelf preview` creates `.autoshelf/preview/` using symlinks only. It is safe to inspect, index, or open from a file browser because it does not move the live files. The preview mirrors live duplicate collapsing too, so identical-content files point at one canonical preview target instead of pretending they will be copied twice.
 
 `autoshelf verify` checks the manifest, expected targets, expected shortcuts, incomplete run state, orphaned run artifacts, and interrupted copy recovery drift. Run it after each production apply and before trusting a tree that may have been modified by other tools.
 

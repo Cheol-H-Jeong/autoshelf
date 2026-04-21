@@ -7,7 +7,7 @@
 - Real Anthropic planner path with tool-use JSON, jittered retries, a cooldown circuit breaker, prompt caching fields, and per-chunk FakeLLM fallback.
 - Offline deterministic planning for CI and first-run use.
 - Parser coverage for text, pdf, office, hwp, image, code, archive, and media files.
-- Two-phase apply with resumable run plans, interrupt-aware run state, staged cross-device moves, hash verification, and undo history.
+- Two-phase apply with resumable run plans, interrupt-aware run state, staged cross-device moves, hash verification, duplicate-content collapsing, and undo history.
 - PySide6 desktop GUI with saved light/dark theme support, runtime language/theme updates, rationale-rich review previews, and dedicated Home, Review, Apply, History, and Settings tabs.
 - Korean and English UI catalogs.
 
@@ -86,7 +86,7 @@ The offline FakeLLM path now uses the same ancestry signals instead of relying o
 After an apply, run `python -m autoshelf verify /path/to/root` to confirm the on-disk tree still matches the manifest hash chain.
 If an apply is interrupted, rerun `python -m autoshelf apply /path/to/root --resume <run-id>` to finish the recorded run safely. Resume now refuses to silently bless a mismatched target when the original source file is gone, so corrupted or replaced targets stay visible instead of being rehashed into a fresh manifest. `verify` reports incomplete runs, orphaned run plans, run states that lost their matching plan files, leftover staged recovery artifacts under `.autoshelf/`, duplicate source files left behind after a target was already promoted, and missing staged copies that need operator attention before the tree is trusted.
 
-Before an apply, run `python -m autoshelf preview /path/to/root` to build a browsable `.autoshelf/preview/` tree made from symlinks only. Autoshelf reuses the saved plan draft when it already has assignments, or replans automatically when you pass `--refresh` or there is no complete draft yet. The preview path mirrors final collision handling, so duplicate names render as `file (2).ext` there before you commit to a live move.
+Before an apply, run `python -m autoshelf preview /path/to/root` to build a browsable `.autoshelf/preview/` tree made from symlinks only. Autoshelf reuses the saved plan draft when it already has assignments, or replans automatically when you pass `--refresh` or there is no complete draft yet. The preview path mirrors final collision handling, so duplicate names render as `file (2).ext` there before you commit to a live move, and identical-content files preview as links to one canonical copy instead of looking like multiple independent payloads.
 
 Use `python -m autoshelf export /path/to/root` to package the current `manifest.jsonl`, `FOLDER_GUIDE.md`, `FILE_INDEX.md`, plan draft, rules file, run plans, run states, verify report, and recent run history into a portable `.tar.gz` bundle. Each bundle now carries a signed-style inventory in `bundle/metadata.json` with per-file SHA-256 checksums, exported verify issue counts, and an operator-facing `bundle/IMPORT_GUIDE.md`. Import that archive into another root with `python -m autoshelf import ...` to unpack it under `.autoshelf/imports/` for offline review, debugging, or support handoff without touching live files. Import rejects path traversal, duplicate members, unsupported tar entries, checksum mismatches, and metadata-to-bundle drift before the bundle is committed into place.
 
