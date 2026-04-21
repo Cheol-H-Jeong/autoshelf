@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import errno
-import hashlib
 import json
-import os
 import shutil
 import uuid
 from dataclasses import dataclass
@@ -38,7 +36,9 @@ def apply_plan(
     run_identifier = run_id or uuid.uuid4().hex
     if dry_run:
         write_manifests(root, tree, assignments)
-        return ApplyResult(run_id=run_identifier, moved=[], shortcuts=[], dry_run=True, resumed=resume)
+        return ApplyResult(
+            run_id=run_identifier, moved=[], shortcuts=[], dry_run=True, resumed=resume
+        )
 
     plan_path = write_run_plan(root, assignments, run_identifier)
     database = Database(db_path or default_db_path(root))
@@ -54,18 +54,34 @@ def apply_plan(
             target_dir.mkdir(parents=True, exist_ok=True)
             target = _resolve_target(target_dir / Path(entry["path"]).name, conflict_policy)
             if conflict_policy == "skip" and target.exists():
-                _update_plan_status(plan_path, entry["path"], "skipped", str(target.relative_to(root)))
-                session.add(_transaction_record(root, run_identifier, sequence, "move", source, target, "skipped"))
+                _update_plan_status(
+                    plan_path, entry["path"], "skipped", str(target.relative_to(root))
+                )
+                session.add(
+                    _transaction_record(
+                        root, run_identifier, sequence, "move", source, target, "skipped"
+                    )
+                )
                 continue
             if not source.exists():
                 _update_plan_status(plan_path, entry["path"], "skipped")
-                session.add(_transaction_record(root, run_identifier, sequence, "move", source, target, "skipped"))
+                session.add(
+                    _transaction_record(
+                        root, run_identifier, sequence, "move", source, target, "skipped"
+                    )
+                )
                 continue
             final_target = _move_file(source, target)
             _verify_move(source, final_target, entry["source_hash"])
             moved.append((source, final_target))
-            _update_plan_status(plan_path, entry["path"], "applied", str(final_target.relative_to(root)))
-            session.add(_transaction_record(root, run_identifier, sequence, "move", source, final_target, "applied"))
+            _update_plan_status(
+                plan_path, entry["path"], "applied", str(final_target.relative_to(root))
+            )
+            session.add(
+                _transaction_record(
+                    root, run_identifier, sequence, "move", source, final_target, "applied"
+                )
+            )
             for extra in entry["also_relevant"]:
                 shortcut_dir = _safe_target_dir(root, extra)
                 shortcut_dir.mkdir(parents=True, exist_ok=True)
@@ -133,7 +149,9 @@ def load_run_plan(plan_path: Path) -> list[dict[str, object]]:
     ]
 
 
-def _update_plan_status(plan_path: Path, source_path: str, status: str, target_path: str | None = None) -> None:
+def _update_plan_status(
+    plan_path: Path, source_path: str, status: str, target_path: str | None = None
+) -> None:
     entries = load_run_plan(plan_path)
     for entry in entries:
         if entry["path"] == source_path:
@@ -143,7 +161,8 @@ def _update_plan_status(plan_path: Path, source_path: str, status: str, target_p
             break
     temp_path = plan_path.with_suffix(".tmp")
     temp_path.write_text(
-        "\n".join(json.dumps(entry, ensure_ascii=False) for entry in entries) + ("\n" if entries else ""),
+        "\n".join(json.dumps(entry, ensure_ascii=False) for entry in entries)
+        + ("\n" if entries else ""),
         encoding="utf-8",
     )
     temp_path.replace(plan_path)

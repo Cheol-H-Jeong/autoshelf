@@ -77,4 +77,3 @@ class PlannerUsage(BaseModel):
         self.output_tokens += output_tokens
         self.cache_creation_input_tokens += cache_creation_input_tokens
         self.cache_read_input_tokens += cache_read_input_tokens
-

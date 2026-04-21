@@ -20,7 +20,9 @@ def parse_code(path: Path, max_head_chars: int = 2000) -> ParsedContext:
             title = stripped[:120]
             break
     head = "\n".join(lines[:40])[:max_head_chars]
-    return ParsedContext(title=title, head_text=head, extra_meta={"language": path.suffix.lower().lstrip(".")})
+    return ParsedContext(
+        title=title, head_text=head, extra_meta={"language": path.suffix.lower().lstrip(".")}
+    )
 
 
 PARSER_SPEC = ParserSpec(name="code", suffixes=_CODE_SUFFIXES, parse=parse_code)

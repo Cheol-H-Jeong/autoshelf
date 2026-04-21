@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QObject, QThread, Signal
-from PySide6.QtWidgets import QLabel, QPushButton, QProgressBar, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QProgressBar, QPushButton, QTextEdit, QVBoxLayout, QWidget
 
 from autoshelf.i18n import t
 

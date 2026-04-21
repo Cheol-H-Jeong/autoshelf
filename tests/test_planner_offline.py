@@ -5,9 +5,9 @@ from pathlib import Path
 
 from autoshelf.config import AppConfig
 from autoshelf.parsers.base import ParsedContext
+from autoshelf.planner.draft import draft_path
 from autoshelf.planner.naming import validate_folder_name
 from autoshelf.planner.pipeline import PlannerPipeline
-from autoshelf.planner.draft import draft_path
 from autoshelf.scanner import FileInfo
 
 

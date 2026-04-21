@@ -33,7 +33,9 @@ def undo_last_apply(
         records = list(
             session.scalars(
                 select(TransactionRecord)
-                .where(TransactionRecord.root == str(root), TransactionRecord.run_id == target_run_id)
+                .where(
+                    TransactionRecord.root == str(root), TransactionRecord.run_id == target_run_id
+                )
                 .order_by(TransactionRecord.sequence.desc(), TransactionRecord.id.desc())
             )
         )

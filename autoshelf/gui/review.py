@@ -32,7 +32,9 @@ class ReviewScreen(QWidget):
         layout.addWidget(splitter)
 
         self.assignment_table = QTableWidget(0, 4)
-        self.assignment_table.setHorizontalHeaderLabels(["Path", "Confidence", "Primary", "Also relevant"])
+        self.assignment_table.setHorizontalHeaderLabels(
+            ["Path", "Confidence", "Primary", "Also relevant"]
+        )
         layout.addWidget(QLabel(t("review.title")))
         layout.addWidget(self.assignment_table)
 

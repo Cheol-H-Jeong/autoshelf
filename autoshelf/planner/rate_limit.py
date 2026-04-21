@@ -33,4 +33,3 @@ class RateLimiter:
                     return
                 sleep_for = max(0.01, 1.0 - (now - self._timestamps[0]))
             time.sleep(sleep_for)
-

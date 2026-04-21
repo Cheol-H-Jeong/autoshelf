@@ -2,4 +2,6 @@
 Type=Application
 Name=autoshelf
 Exec=autoshelf gui
+Terminal=false
 Categories=Utility;
+Comment=Organize folders with reversible planning and manifests

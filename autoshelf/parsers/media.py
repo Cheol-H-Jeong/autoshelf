@@ -15,7 +15,9 @@ def parse_media(path: Path, max_head_chars: int = 2000) -> ParsedContext:
     if not metadata:
         return ParsedContext(title=path.stem, head_text="", extra_meta={"parser": "fallback"})
     head = " | ".join(f"{key}: {value}" for key, value in metadata.items())[:max_head_chars]
-    return ParsedContext(title=str(metadata.get("title", path.stem))[:120], head_text=head, extra_meta=metadata)
+    return ParsedContext(
+        title=str(metadata.get("title", path.stem))[:120], head_text=head, extra_meta=metadata
+    )
 
 
 def _mutagen_metadata(path: Path) -> dict[str, object]:

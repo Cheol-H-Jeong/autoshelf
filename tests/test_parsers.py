@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import io
 import sys
 import types
 import zipfile
-from pathlib import Path
 
 from autoshelf.parsers import parse_file
 
@@ -50,7 +48,9 @@ def test_pdf_parser_malformed_file(tmp_path):
 
 
 def test_docx_parser_happy_path(monkeypatch, tmp_path):
-    paragraph = types.SimpleNamespace(text="Project Plan", style=types.SimpleNamespace(name="Title"))
+    paragraph = types.SimpleNamespace(
+        text="Project Plan", style=types.SimpleNamespace(name="Title")
+    )
     body = types.SimpleNamespace(text="Body text", style=types.SimpleNamespace(name="Heading 1"))
     document = types.SimpleNamespace(paragraphs=[paragraph, body])
     module = types.SimpleNamespace(Document=lambda _path: document)

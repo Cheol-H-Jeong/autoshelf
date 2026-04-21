@@ -35,9 +35,9 @@ def scan_directory(root: Path, config: AppConfig | None = None) -> list[FileInfo
     for path in sorted(root.rglob("*")):
         if _is_excluded(root, path, cfg.exclude, cfg.include_dotfiles):
             continue
-        if path.is_dir():
-            continue
         try:
+            if path.is_dir():
+                continue
             stat = path.stat()
             files.append(
                 FileInfo(

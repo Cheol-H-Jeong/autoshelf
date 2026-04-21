@@ -34,12 +34,19 @@ def _render_folder_guide(tree: dict[str, object], korean: bool) -> str:
             "# FOLDER_GUIDE",
             "",
             "This structure favors folder names that are easy for humans to remember.",
-            "Top-level folders represent themes or document types, with year subfolders only when helpful.",
+            (
+                "Top-level folders represent themes or document types, "
+                "with year subfolders only when helpful."
+            ),
             "",
         ]
     )
     for name in sorted(tree):
-        description = f"여기에는 {name} 관련 파일이 들어갑니다." if korean else f"Files related to {name} belong here."
+        description = (
+            f"여기에는 {name} 관련 파일이 들어갑니다."
+            if korean
+            else f"Files related to {name} belong here."
+        )
         intro.append(f"- `{name}`: {description}")
     return "\n".join(intro) + "\n"
 
@@ -52,10 +59,12 @@ def _render_file_index(assignments: list[PlannerAssignment], korean: bool) -> st
         fallback_flag = " ⚠ fallback" if assignment.fallback else ""
         if korean:
             extra_text = f" | 바로가기: {', '.join(extras)}" if extras else ""
-            lines.append(f"- `{target}` | 요약: {assignment.summary or '요약 없음'}{extra_text}{fallback_flag}")
+            summary = assignment.summary or "요약 없음"
+            lines.append(f"- `{target}` | 요약: {summary}{extra_text}{fallback_flag}")
         else:
             extra_text = f" | Shortcuts: {', '.join(extras)}" if extras else ""
-            lines.append(f"- `{target}` | Summary: {assignment.summary or 'No summary'}{extra_text}{fallback_flag}")
+            summary = assignment.summary or "No summary"
+            lines.append(f"- `{target}` | Summary: {summary}{extra_text}{fallback_flag}")
     return "\n".join(lines) + "\n"
 
 

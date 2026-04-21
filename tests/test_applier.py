@@ -11,8 +11,12 @@ from autoshelf.shortcuts import create_shortcut
 from autoshelf.undo import undo_last_apply
 
 
-def _assignment(path: str, primary: list[str], also: list[list[str]] | None = None) -> PlannerAssignment:
-    return PlannerAssignment(path=path, primary_dir=primary, also_relevant=also or [], summary="hello")
+def _assignment(
+    path: str, primary: list[str], also: list[list[str]] | None = None
+) -> PlannerAssignment:
+    return PlannerAssignment(
+        path=path, primary_dir=primary, also_relevant=also or [], summary="hello"
+    )
 
 
 def test_apply_dry_run_noop(tmp_path):
@@ -48,7 +52,9 @@ def test_apply_cross_device_copy_verifies_hash(tmp_path, monkeypatch):
 
     monkeypatch.setattr(Path, "rename", raise_exdev)
     try:
-        result = apply_plan(tmp_path, [_assignment("draft.txt", ["문서"])], {"문서": {}}, dry_run=False)
+        result = apply_plan(
+            tmp_path, [_assignment("draft.txt", ["문서"])], {"문서": {}}, dry_run=False
+        )
     finally:
         monkeypatch.setattr(Path, "rename", original_rename)
     assert result.moved[0][1].exists()
@@ -118,7 +124,9 @@ def test_shortcut_windows_uses_lnk(monkeypatch, tmp_path):
         Path(dest).write_text("lnk", encoding="utf-8")
 
     monkeypatch.setattr(shortcuts_module.sys, "platform", "win32")
-    monkeypatch.setitem(__import__("sys").modules, "pylnk3", type("P", (), {"create": staticmethod(fake_create)}))
+    monkeypatch.setitem(
+        __import__("sys").modules, "pylnk3", type("P", (), {"create": staticmethod(fake_create)})
+    )
     path = create_shortcut(target, tmp_path / "shortcut")
     assert path.suffix == ".lnk"
     assert created

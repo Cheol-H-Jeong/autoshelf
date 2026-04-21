@@ -27,7 +27,9 @@ class SettingsScreen(QWidget):
         self.api_key = QLineEdit()
         self.api_key.setEchoMode(QLineEdit.Password)
         self.classification_model = QComboBox()
-        self.classification_model.addItems(["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-7"])
+        self.classification_model.addItems(
+            ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-7"]
+        )
         self.planning_model = QComboBox()
         self.planning_model.addItems(["claude-sonnet-4-6", "claude-opus-4-7"])
         self.review_model = QComboBox()

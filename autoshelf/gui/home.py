@@ -4,8 +4,8 @@ from PySide6.QtCore import QObject, QThread, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
-    QListWidget,
     QLineEdit,
+    QListWidget,
     QPushButton,
     QTextEdit,
     QVBoxLayout,

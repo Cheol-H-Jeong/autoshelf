@@ -11,7 +11,7 @@ from autoshelf.paths import state_dir
 
 def run_diagnostics(root: Path | None = None) -> dict[str, object]:
     deps = {}
-    for name in ["anthropic", "PySide6", "pypdf", "openpyxl", "pptx", "docx", "olefile"]:
+    for name in ["anthropic", "PySide6", "pypdf", "openpyxl", "pptx", "docx", "olefile", "pyhwp"]:
         try:
             importlib.import_module(name)
             deps[name] = "ok"

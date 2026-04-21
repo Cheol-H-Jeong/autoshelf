@@ -51,5 +51,7 @@ def _run_with_timeout(spec: ParserSpec, path: Path, max_head_chars: int) -> Pars
             logger.bind(component="parser").warning("parser timeout {} for {}", spec.name, path)
             return ParsedContext(title=path.stem, head_text="", extra_meta={"parser": "timeout"})
         except Exception as exc:
-            logger.bind(component="parser").warning("parser failure {} for {}: {}", spec.name, path, exc)
+            logger.bind(component="parser").warning(
+                "parser failure {} for {}: {}", spec.name, path, exc
+            )
             return ParsedContext(title=path.stem, head_text="", extra_meta={"parser": "failed"})

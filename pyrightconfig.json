@@ -1,0 +1,9 @@
+{
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "off",
+  "reportMissingImports": false,
+  "reportUnknownMemberType": false,
+  "reportUnknownArgumentType": false,
+  "reportUnknownVariableType": false,
+  "reportUnknownParameterType": false
+}

@@ -20,8 +20,7 @@ def create_shortcut(target: Path, shortcut_path: Path) -> Path:
     except OSError:
         desktop_path = shortcut_path.with_suffix(".desktop")
         desktop_path.write_text(
-            "[Desktop Entry]\nType=Link\nName=autoshelf shortcut\nURL=file://"
-            f"{target}\n",
+            f"[Desktop Entry]\nType=Link\nName=autoshelf shortcut\nURL=file://{target}\n",
             encoding="utf-8",
         )
         return desktop_path

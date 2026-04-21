@@ -13,7 +13,6 @@ from autoshelf.config import AppConfig
 from autoshelf.db import ContextRecord, Database, FileRecord, default_db_path
 from autoshelf.doctor import doctor_exit_code, run_diagnostics
 from autoshelf.logging_utils import configure_logging
-from autoshelf.manifest import write_manifests
 from autoshelf.parsers import parse_file
 from autoshelf.planner.pipeline import PlannerPipeline
 from autoshelf.scanner import scan_directory
@@ -43,6 +42,12 @@ def main() -> None:
         raise SystemExit(doctor_exit_code(report))
 
     root = Path(args.root).expanduser().resolve()
+    if getattr(args, "exclude", None):
+        config.exclude = list(dict.fromkeys([*config.exclude, *args.exclude]))
+    if getattr(args, "chunk_tokens", None):
+        config.max_chunk_tokens = args.chunk_tokens
+    if getattr(args, "model", None):
+        config.llm.planning_model = args.model
     if args.command == "scan":
         files = scan_directory(root, config)
         _persist_scan(root, files, config)
@@ -52,7 +57,13 @@ def main() -> None:
     if args.command == "plan":
         result = _plan(root, config, resume=args.resume)
         record_event("plan", result.usage.model_dump())
-        print(json.dumps({"tree": result.tree, "unsure_paths": result.unsure_paths}, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                {"tree": result.tree, "unsure_paths": result.unsure_paths},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         return
     if args.command == "apply":
         result = _plan(root, config, resume=False)
@@ -67,10 +78,14 @@ def main() -> None:
             conflict_policy=args.policy,
         )
         record_event("apply", {"moved": len(outcome.moved), **result.usage.model_dump()})
-        print(json.dumps({"run_id": outcome.run_id, "dry_run": outcome.dry_run}, ensure_ascii=False))
+        print(
+            json.dumps({"run_id": outcome.run_id, "dry_run": outcome.dry_run}, ensure_ascii=False)
+        )
         return
     if args.command == "undo":
-        outcome = undo_last_apply(root, default_db_path(root), run_id=args.run_id, dry_run=args.dry_run)
+        outcome = undo_last_apply(
+            root, default_db_path(root), run_id=args.run_id, dry_run=args.dry_run
+        )
         record_event("undo", {"undone": outcome.undone, "conflicts": len(outcome.conflicts)})
         print(json.dumps(outcome.__dict__, ensure_ascii=False, default=str))
         return
@@ -81,7 +96,9 @@ def main() -> None:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="autoshelf")
-    parser.add_argument("--log-level", default="info", choices=["debug", "info", "warning", "error"])
+    parser.add_argument(
+        "--log-level", default="info", choices=["debug", "info", "warning", "error"]
+    )
     parser.add_argument("--config", default=None)
     subparsers = parser.add_subparsers(dest="command")
 
@@ -158,7 +175,9 @@ def _persist_scan(root: Path, files: list, config: AppConfig) -> dict[Path, obje
             existing_context = session.execute(
                 select(ContextRecord).where(ContextRecord.file_id == record.id)
             ).scalar_one_or_none()
-            context_record = existing_context or ContextRecord(file_id=record.id, title="", head_text="", extra_meta={})
+            context_record = existing_context or ContextRecord(
+                file_id=record.id, title="", head_text="", extra_meta={}
+            )
             context_record.title = context.title
             context_record.head_text = context.head_text
             context_record.extra_meta = context.extra_meta
@@ -168,7 +187,10 @@ def _persist_scan(root: Path, files: list, config: AppConfig) -> dict[Path, obje
 
 def _plan(root: Path, config: AppConfig, resume: bool = False):
     files = scan_directory(root, config)
-    contexts = {file_info.absolute_path: parse_file(file_info.absolute_path, config.max_head_chars) for file_info in files}
+    contexts = {
+        file_info.absolute_path: parse_file(file_info.absolute_path, config.max_head_chars)
+        for file_info in files
+    }
     pipeline = PlannerPipeline(config)
     return pipeline.plan(files, contexts, root=root, resume=resume)
 

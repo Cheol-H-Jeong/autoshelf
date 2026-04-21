@@ -41,7 +41,9 @@ def _parse_docx(path: Path, max_head_chars: int) -> ParsedContext:
             for paragraph in paragraphs
             if paragraph.style is not None and "heading" in paragraph.style.name.lower()
         ]
-        return ParsedContext(title=title[:120], head_text=head, extra_meta={"headings": headings[:5]})
+        return ParsedContext(
+            title=title[:120], head_text=head, extra_meta={"headings": headings[:5]}
+        )
     except Exception:
         return ParsedContext(title=path.stem, head_text="", extra_meta={"parser": "failed"})
 
@@ -63,7 +65,9 @@ def _parse_pptx(path: Path, max_head_chars: int) -> ParsedContext:
                     break
         content = "\n".join(texts)
         title = titles[0] if titles else path.stem
-        return ParsedContext(title=title[:120], head_text=content[:max_head_chars], extra_meta={"slides": len(texts)})
+        return ParsedContext(
+            title=title[:120], head_text=content[:max_head_chars], extra_meta={"slides": len(texts)}
+        )
     except Exception:
         return ParsedContext(title=path.stem, head_text="", extra_meta={"parser": "failed"})
 
@@ -82,7 +86,9 @@ def _parse_xlsx(path: Path, max_head_chars: int) -> ParsedContext:
                 texts.append(" | ".join("" if value is None else str(value) for value in row))
         head_text = "\n".join(texts)[:max_head_chars]
         title = workbook.sheetnames[0] if workbook.sheetnames else path.stem
-        return ParsedContext(title=title[:120], head_text=head_text, extra_meta={"sheets": workbook.sheetnames})
+        return ParsedContext(
+            title=title[:120], head_text=head_text, extra_meta={"sheets": workbook.sheetnames}
+        )
     except Exception:
         return ParsedContext(title=path.stem, head_text="", extra_meta={"parser": "failed"})
 

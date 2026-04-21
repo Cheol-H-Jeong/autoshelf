@@ -21,6 +21,8 @@ def save_draft(root: Path, draft: PlanDraft) -> Path:
     path = draft_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = path.with_suffix(".tmp")
-    temp_path.write_text(json.dumps(draft.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
+    temp_path.write_text(
+        json.dumps(draft.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     temp_path.replace(path)
     return path

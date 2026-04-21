@@ -1,27 +1,24 @@
-# autoshelf
+# autoshelf v1.0.0
 
-`autoshelf` scans a folder, extracts lightweight context from files, plans a human-readable directory tree, applies moves plus shortcuts, generates Markdown manifests, and can undo the last apply run.
+`autoshelf` scans a folder, extracts lightweight content context, drafts a reversible organization plan, applies moves plus shortcuts, and leaves behind `FOLDER_GUIDE.md`, `FILE_INDEX.md`, and `manifest.jsonl`.
 
-## Installation
+## Features
+
+- Real Anthropic planner path with tool-use JSON, retries, rate limiting, prompt caching fields, and per-chunk FakeLLM fallback.
+- Offline deterministic planning for CI and first-run use.
+- Parser coverage for text, pdf, office, hwp, image, code, archive, and media files.
+- Two-phase apply with resumable run plans, hash verification, and undo history.
+- PySide6 desktop GUI with Home, Review, Apply, History, and Settings tabs.
+- Korean and English UI catalogs.
+
+## Install
 
 ### Linux
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e .[dev]
-```
-
-GUI support:
-
-```bash
-pip install -e .[gui]
-```
-
-Optional parsers and Anthropic integration:
-
-```bash
-pip install -e .[parsers,llm]
+pip install -e .[all]
 ```
 
 ### Windows
@@ -29,35 +26,48 @@ pip install -e .[parsers,llm]
 ```powershell
 py -3.11 -m venv .venv
 .venv\Scripts\Activate.ps1
-pip install -e .[dev]
-pip install -e .[gui]
+pip install -e .[all]
 ```
 
-## Usage
-
-CLI help:
+## CLI
 
 ```bash
 python -m autoshelf --help
-autoshelf scan /path/to/root
-autoshelf plan /path/to/root
-autoshelf apply /path/to/root
-autoshelf undo /path/to/root
-autoshelf gui
+python -m autoshelf scan /path/to/root
+python -m autoshelf plan /path/to/root --resume
+python -m autoshelf apply /path/to/root --policy append-counter
+python -m autoshelf undo /path/to/root --dry-run
+python -m autoshelf history /path/to/root
+python -m autoshelf stats
+python -m autoshelf doctor
+python -m autoshelf version
+python -m autoshelf gui
 ```
 
-Offline planning is automatic when `ANTHROPIC_API_KEY` is unset or config sets `llm.provider = "fake"`.
+Offline planning is used automatically when `ANTHROPIC_API_KEY` is unset or `llm.provider = "fake"`.
 
 ## GUI
 
-The GUI is a minimal PySide6 desktop shell with the Home screen implemented and placeholder tabs for Review, Apply, History, and Settings.
+- Home: folder selection, recent folders, scan status, offline banner.
+- Review: current/proposed tree panes, assignment table, planner rerun button.
+- Apply: progress bar, token counter, log, cancel button.
+- History: run table with undo/open/show-manifest actions.
+- Settings: API key field, model pickers, chunk slider, locale/theme controls.
+
+## Packaging
+
+- `packaging/pyinstaller.spec` builds the desktop bundle.
+- `packaging/windows/autoshelf.iss` builds the Inno Setup installer.
+- `packaging/linux/autoshelf.desktop` is the Linux desktop entry.
+- `packaging/build.py` is the host-aware build driver.
 
 ## Screenshots
 
-Placeholder:
-
 - `docs/screenshots/home.png`
 - `docs/screenshots/review.png`
+- `docs/screenshots/apply.png`
+- `docs/screenshots/history.png`
+- `docs/screenshots/settings.png`
 
 ## License
 

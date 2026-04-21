@@ -11,8 +11,8 @@ from loguru import logger
 
 from autoshelf.config import AppConfig
 from autoshelf.planner.chunking import FileBrief
-from autoshelf.planner.naming import normalize_folder_name
 from autoshelf.planner.models import PlannerAssignment, PlannerResponse, PlannerUsage
+from autoshelf.planner.naming import normalize_folder_name
 from autoshelf.planner.prompts import SYSTEM_PROMPT
 from autoshelf.planner.rate_limit import RateLimiter
 
@@ -186,7 +186,10 @@ class AnthropicPlannerLLM:
 
     def propose(self, draft_tree: dict[str, Any], briefs: list[FileBrief]) -> PlannerResponse:
         prompt = "Propose or refine the folder tree and tentative assignments for this chunk."
-        fallback = lambda: self._fallback.propose(draft_tree, briefs)
+
+        def fallback() -> PlannerResponse:
+            return self._fallback.propose(draft_tree, briefs)
+
         return self._request(
             model=self._config.llm.planning_model,
             draft_tree=draft_tree,
@@ -197,11 +200,14 @@ class AnthropicPlannerLLM:
 
     def finalize(self, draft_tree: dict[str, Any], briefs: list[FileBrief]) -> dict[str, Any]:
         prompt = "Finalize the folder tree. Improve naming, merge duplicates, and keep depth <= 3."
-        fallback = lambda: PlannerResponse(
-            tree=self._fallback.finalize(draft_tree, briefs),
-            assignments=[],
-            unsure_paths=[],
-        )
+
+        def fallback() -> PlannerResponse:
+            return PlannerResponse(
+                tree=self._fallback.finalize(draft_tree, briefs),
+                assignments=[],
+                unsure_paths=[],
+            )
+
         response = self._request(
             model=self._config.llm.review_model,
             draft_tree=draft_tree,
@@ -217,11 +223,14 @@ class AnthropicPlannerLLM:
         briefs: list[FileBrief],
     ) -> list[PlannerAssignment]:
         prompt = "Assign every file to the final folder tree. Return primary_dir and also_relevant."
-        fallback = lambda: PlannerResponse(
-            tree=final_tree,
-            assignments=self._fallback.assign(final_tree, briefs),
-            unsure_paths=[],
-        )
+
+        def fallback() -> PlannerResponse:
+            return PlannerResponse(
+                tree=final_tree,
+                assignments=self._fallback.assign(final_tree, briefs),
+                unsure_paths=[],
+            )
+
         response = self._request(
             model=self._config.llm.classification_model,
             draft_tree=final_tree,
@@ -240,9 +249,14 @@ class AnthropicPlannerLLM:
 
         return count_tokens(briefs, counter=self._client)
 
-    def _messages_payload(self, briefs: list[FileBrief], tree: dict[str, Any], model: str) -> dict[str, Any]:
+    def _messages_payload(
+        self, briefs: list[FileBrief], tree: dict[str, Any], model: str
+    ) -> dict[str, Any]:
         guide_text = self._existing_folder_guide()
-        system_text = SYSTEM_PROMPT if not guide_text else f"{SYSTEM_PROMPT}\n\nExisting guide:\n{guide_text}"
+        system_text = (
+            SYSTEM_PROMPT if not guide_text else f"{SYSTEM_PROMPT}\n\nExisting guide:\n{guide_text}"
+        )
+        brief_payload = [brief.model_dump() for brief in briefs]
         return {
             "model": model,
             "max_tokens": 4096,
@@ -267,7 +281,7 @@ class AnthropicPlannerLLM:
                     "content": [
                         {
                             "type": "text",
-                            "text": f"tree={tree}\nbriefs={[brief.model_dump() for brief in briefs]}",
+                            "text": f"tree={tree}\nbriefs={brief_payload}",
                         }
                     ],
                 }
@@ -284,8 +298,7 @@ class AnthropicPlannerLLM:
     ) -> PlannerResponse:
         payload = self._messages_payload(briefs, draft_tree, model)
         payload["messages"][0]["content"][0]["text"] = (
-            f"{prompt}\n\n"
-            f"{payload['messages'][0]['content'][0]['text']}"
+            f"{prompt}\n\n{payload['messages'][0]['content'][0]['text']}"
         )
         errors = self._retryable_errors()
         for attempt in range(self._config.llm.max_retries + 1):
@@ -297,7 +310,8 @@ class AnthropicPlannerLLM:
                 self._usage.add_usage(
                     input_tokens=getattr(usage, "input_tokens", 0) or 0,
                     output_tokens=getattr(usage, "output_tokens", 0) or 0,
-                    cache_creation_input_tokens=getattr(usage, "cache_creation_input_tokens", 0) or 0,
+                    cache_creation_input_tokens=getattr(usage, "cache_creation_input_tokens", 0)
+                    or 0,
                     cache_read_input_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
                 )
                 logger.bind(component="planner").info(
@@ -328,8 +342,11 @@ class AnthropicPlannerLLM:
 
     def _parse_response(self, response: Any) -> PlannerResponse:
         for block in getattr(response, "content", []):
-            if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == "emit_plan":
-                return PlannerResponse.model_validate(getattr(block, "input"))
+            if (
+                getattr(block, "type", None) == "tool_use"
+                and getattr(block, "name", None) == "emit_plan"
+            ):
+                return PlannerResponse.model_validate(block.input)
         raise ValueError("Anthropic response did not include emit_plan tool_use output")
 
     def _existing_folder_guide(self) -> str:
@@ -350,16 +367,12 @@ class AnthropicPlannerLLM:
 
 
 def get_planner_llm(config: AppConfig | None = None) -> PlannerLLM:
+    from autoshelf.planner.providers import load_llm_provider
+
     cfg = config or AppConfig()
-    provider = cfg.llm.provider.lower()
-    if provider == "fake" or not os.environ.get("ANTHROPIC_API_KEY"):
+    if cfg.llm.provider.lower() == "fake" or not os.environ.get("ANTHROPIC_API_KEY"):
         return FakeLLM()
-    if provider in {"auto", "anthropic"}:
-        try:
-            return AnthropicPlannerLLM(cfg)
-        except Exception:
-            return FakeLLM()
-    return FakeLLM()
+    return load_llm_provider(cfg)
 
 
 def _deep_copy_tree(tree: dict[str, Any]) -> dict[str, Any]:

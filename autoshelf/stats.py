@@ -18,7 +18,9 @@ class EventRecord(Base):
     payload: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
 
 
-def record_event(event_type: str, payload: dict[str, object] | None = None, db_path: Path | None = None) -> None:
+def record_event(
+    event_type: str, payload: dict[str, object] | None = None, db_path: Path | None = None
+) -> None:
     database = Database(db_path or global_db_path())
     with database.session() as session:
         session.add(EventRecord(event_type=event_type, payload=payload or {}))
@@ -28,10 +30,19 @@ def collect_stats(db_path: Path | None = None) -> dict[str, object]:
     database = Database(db_path or global_db_path())
     database.initialize()
     with database.session() as session:
-        counts = dict(session.execute(select(EventRecord.event_type, func.count()).group_by(EventRecord.event_type)).all())
+        counts = dict(
+            session.execute(
+                select(EventRecord.event_type, func.count()).group_by(EventRecord.event_type)
+            ).all()
+        )
         token_totals = Counter()
         for payload in session.scalars(select(EventRecord.payload)).all():
-            for key in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"):
+            for key in (
+                "input_tokens",
+                "output_tokens",
+                "cache_read_input_tokens",
+                "cache_creation_input_tokens",
+            ):
                 if isinstance(payload.get(key), int):
                     token_totals[key] += int(payload[key])
         return {
