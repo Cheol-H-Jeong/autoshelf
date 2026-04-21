@@ -8,7 +8,7 @@
 - Offline deterministic planning for CI and first-run use.
 - Parser coverage for text, pdf, office, hwp, image, code, archive, and media files.
 - Two-phase apply with resumable run plans, hash verification, and undo history.
-- PySide6 desktop GUI with Home, Review, Apply, History, and Settings tabs.
+- PySide6 desktop GUI with saved light/dark theme support, rationale-rich review previews, and dedicated Home, Review, Apply, History, and Settings tabs.
 - Korean and English UI catalogs.
 
 ## Install
@@ -85,10 +85,10 @@ Run `python -m autoshelf doctor /path/to/root` to confirm the rules file parses 
 ## GUI
 
 - Home: folder selection, recent folders, scan status, offline banner.
-- Review: current/proposed tree panes, assignment table, planner rerun button.
+- Review: current/proposed tree panes, colored move previews, assignment table, and folder rationale hints.
 - Apply: progress bar, token counter, log, cancel button.
 - History: run table with undo/open/show-manifest actions.
-- Settings: API key field, model pickers, chunk slider, locale/theme controls.
+- Settings: persisted model pickers, chunk slider, locale/theme controls, and saved configuration feedback.
 
 ## Packaging
 
