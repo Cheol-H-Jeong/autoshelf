@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -13,8 +14,17 @@ def create_shortcut(target: Path, shortcut_path: Path) -> Path:
         return _create_windows_shortcut(target, shortcut_path)
     if shortcut_path.exists():
         shortcut_path.unlink()
-    os.symlink(target, shortcut_path)
-    return shortcut_path
+    try:
+        os.symlink(target, shortcut_path)
+        return shortcut_path
+    except OSError:
+        desktop_path = shortcut_path.with_suffix(".desktop")
+        desktop_path.write_text(
+            "[Desktop Entry]\nType=Link\nName=autoshelf shortcut\nURL=file://"
+            f"{target}\n",
+            encoding="utf-8",
+        )
+        return desktop_path
 
 
 def _create_windows_shortcut(target: Path, shortcut_path: Path) -> Path:
@@ -36,3 +46,13 @@ def _create_windows_shortcut(target: Path, shortcut_path: Path) -> Path:
     )
     pylnk3.create(str(target), str(link_path))
     return link_path
+
+
+def copy_fallback(target: Path, shortcut_path: Path) -> Path:
+    copy_name = (
+        shortcut_path.with_name(f"{shortcut_path.stem} (copy){shortcut_path.suffix}")
+        if shortcut_path.suffix
+        else shortcut_path.with_name(f"{shortcut_path.name} (copy)")
+    )
+    shutil.copy2(target, copy_name)
+    return copy_name

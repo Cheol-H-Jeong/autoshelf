@@ -1,36 +1,59 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
+
+from sqlalchemy import select
 
 from autoshelf.db import Database, TransactionRecord, default_db_path
 
 
-def undo_last_apply(root: Path, db_path: Path | None = None) -> int:
-    """Undo the most recent apply run and return the number of reversed actions."""
+@dataclass(slots=True)
+class UndoResult:
+    run_id: str | None
+    undone: int
+    conflicts: list[str]
+    planned: list[tuple[Path, Path]]
 
+
+def undo_last_apply(
+    root: Path,
+    db_path: Path | None = None,
+    run_id: str | None = None,
+    dry_run: bool = False,
+) -> UndoResult:
     database = Database(db_path or default_db_path(root))
-    run_id = database.last_run_id(root)
-    if run_id is None:
-        return 0
-    count = 0
+    target_run_id = run_id or database.last_run_id(root)
+    if target_run_id is None:
+        return UndoResult(run_id=None, undone=0, conflicts=[], planned=[])
+    conflicts: list[str] = []
+    planned: list[tuple[Path, Path]] = []
+    undone = 0
     with database.session() as session:
-        records = (
-            session.query(TransactionRecord)
-            .filter(TransactionRecord.root == str(root), TransactionRecord.run_id == run_id)
-            .order_by(TransactionRecord.id.desc())
-            .all()
+        records = list(
+            session.scalars(
+                select(TransactionRecord)
+                .where(TransactionRecord.root == str(root), TransactionRecord.run_id == target_run_id)
+                .order_by(TransactionRecord.sequence.desc(), TransactionRecord.id.desc())
+            )
         )
         for record in records:
             target = Path(record.target_path)
             source = Path(record.source_path)
+            planned.append((target, source))
+            if dry_run:
+                continue
             if record.action == "shortcut":
                 if target.exists() or target.is_symlink():
                     target.unlink()
-                    count += 1
-            elif record.action == "move":
-                source.parent.mkdir(parents=True, exist_ok=True)
-                if target.exists():
-                    target.replace(source)
-                    count += 1
-            session.delete(record)
-    return count
+                    record.status = "reverted"
+                    undone += 1
+                continue
+            if not target.exists():
+                conflicts.append(str(target))
+                continue
+            source.parent.mkdir(parents=True, exist_ok=True)
+            target.replace(source)
+            record.status = "reverted"
+            undone += 1
+    return UndoResult(run_id=target_run_id, undone=undone, conflicts=conflicts, planned=planned)
