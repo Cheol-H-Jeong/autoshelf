@@ -6,8 +6,11 @@
   "history.title": "이력",
   "settings.title": "설정",
   "settings.test_connection": "연결 테스트",
+  "settings.save": "저장",
+  "settings.saved": "{path}에 설정을 저장했습니다",
   "status.offline": "오프라인 모드",
   "button.plan": "계획",
   "button.apply": "적용",
-  "button.undo": "되돌리기"
+  "button.undo": "되돌리기",
+  "review.hint_placeholder": "제안된 폴더나 파일을 선택하면 분류 근거를 보여줍니다."
 }

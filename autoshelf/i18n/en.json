@@ -6,8 +6,11 @@
   "history.title": "History",
   "settings.title": "Settings",
   "settings.test_connection": "Test connection",
+  "settings.save": "Save",
+  "settings.saved": "Saved settings to {path}",
   "status.offline": "Offline mode",
   "button.plan": "Plan",
   "button.apply": "Apply",
-  "button.undo": "Undo"
+  "button.undo": "Undo",
+  "review.hint_placeholder": "Select a proposed folder or file to inspect the planner rationale."
 }
