@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.2
+
+- Added `.autoshelfrc.yaml` planning rules with pinned folders and glob-based folder overrides applied before and after planning.
+- Surfaced rules constraints in Anthropic planner prompts so online planning follows the same policy as offline runs.
+- Added doctor coverage for rules file validity and documented the rules workflow in the README.
+
 ## v1.0.1
 
 - Added a tamper-evident hash-chain manifest schema with per-file content hashes.
