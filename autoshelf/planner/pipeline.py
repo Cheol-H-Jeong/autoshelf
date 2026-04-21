@@ -29,6 +29,7 @@ class PlannerPipeline:
     def __init__(self, config: AppConfig | None = None) -> None:
         self.config = config or AppConfig()
         self.llm = get_planner_llm(self.config)
+        self._duplicate_hash_counts: dict[str, int] = {}
 
     def plan(
         self,
@@ -40,6 +41,7 @@ class PlannerPipeline:
     ) -> PlanResult:
         rules = load_planning_rules(root)
         self.llm = get_planner_llm(self.config, rules)
+        self._duplicate_hash_counts = self._count_duplicate_hashes(files)
         briefs = [self._brief(file_info, contexts) for file_info in files]
         chunks = self._chunk_briefs(briefs)
         tree: dict[str, object] = merge_rule_paths({}, rules)
@@ -99,11 +101,13 @@ class PlannerPipeline:
         return FileBrief(
             path=str(file_info.relative_path),
             parent_name=file_info.parent_name,
+            parent_path=self._parent_path(file_info),
             filename=file_info.filename,
             extension=file_info.extension,
             mtime=file_info.mtime,
             title=context.title,
             head_text=context.head_text,
+            duplicate_group_size=self._duplicate_group_size(file_info),
         )
 
     def _chunk_briefs(self, briefs: list[FileBrief]) -> list[list[FileBrief]]:
@@ -128,3 +132,18 @@ class PlannerPipeline:
         if assignment.confidence < 0.6 and assignment.also_relevant:
             assignment.also_relevant = assignment.also_relevant[:1]
         return assignment
+
+    def _parent_path(self, file_info: FileInfo) -> str:
+        parent = file_info.relative_path.parent
+        if str(parent) in {".", ""}:
+            return ""
+        return parent.as_posix()
+
+    def _duplicate_group_size(self, file_info: FileInfo) -> int:
+        return self._duplicate_hash_counts.get(file_info.file_hash, 1)
+
+    def _count_duplicate_hashes(self, files: list[FileInfo]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for file_info in files:
+            counts[file_info.file_hash] = counts.get(file_info.file_hash, 0) + 1
+        return counts

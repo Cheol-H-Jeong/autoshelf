@@ -8,7 +8,6 @@ from autoshelf.parsers.base import ParsedContext
 from autoshelf.planner.chunking import FileBrief
 from autoshelf.planner.llm import AnthropicPlannerLLM
 from autoshelf.planner.pipeline import PlannerPipeline
-from autoshelf.rules import load_planning_rules
 from autoshelf.scanner import FileInfo
 
 
@@ -25,6 +24,10 @@ mappings:
 """.strip(),
         encoding="utf-8",
     )
+    (tmp_path / "inbox").mkdir()
+    (tmp_path / "inbox" / "draft.txt").write_text("draft", encoding="utf-8")
+    (tmp_path / "copy").mkdir()
+    (tmp_path / "copy" / "draft-copy.txt").write_text("draft", encoding="utf-8")
     config = AppConfig(llm=LLMSettings(provider="anthropic"))
     mock_anthropic.responses.append(
         mock_anthropic.make_response(
@@ -40,21 +43,36 @@ mappings:
             ],
         )
     )
-    llm = AnthropicPlannerLLM(config, load_planning_rules(tmp_path))
-    llm.propose(
-        {},
-        [
-            FileBrief(
-                path="draft.txt",
-                parent_name="inbox",
-                filename="draft.txt",
-                extension="txt",
-                mtime=datetime.now().timestamp(),
-                title="Draft",
-                head_text="notes",
-            )
-        ],
+    file_info = FileInfo(
+        absolute_path=tmp_path / "inbox" / "draft.txt",
+        relative_path=Path("inbox/draft.txt"),
+        parent_name="inbox",
+        filename="draft.txt",
+        stem="draft",
+        extension="txt",
+        size_bytes=5,
+        mtime=datetime.now().timestamp(),
+        ctime=datetime.now().timestamp(),
+        file_hash="shared-hash",
     )
+    duplicate = FileInfo(
+        absolute_path=tmp_path / "copy" / "draft-copy.txt",
+        relative_path=Path("copy/draft-copy.txt"),
+        parent_name="copy",
+        filename="draft-copy.txt",
+        stem="draft-copy",
+        extension="txt",
+        size_bytes=5,
+        mtime=datetime.now().timestamp(),
+        ctime=datetime.now().timestamp(),
+        file_hash="shared-hash",
+    )
+    contexts = {
+        file_info.absolute_path: ParsedContext("Draft", "notes", {}),
+        duplicate.absolute_path: ParsedContext("Copy", "notes", {}),
+    }
+    result = PlannerPipeline(config).plan([file_info, duplicate], contexts, root=tmp_path)
+    assert result.assignments
     payload = mock_anthropic.calls[0]
     system_text = "\n".join(str(block["text"]) for block in payload["system"])
     assert payload["tool_choice"] == {"type": "tool", "name": "emit_plan"}
@@ -64,6 +82,8 @@ mappings:
     assert "Finance/Taxes" in system_text
     assert payload["messages"][0]["content"][0]["text"].startswith("Propose or refine")
     assert "'parent_name': 'inbox'" in payload["messages"][0]["content"][0]["text"]
+    assert "'parent_path': 'inbox'" in payload["messages"][0]["content"][0]["text"]
+    assert "'duplicate_group_size': 2" in payload["messages"][0]["content"][0]["text"]
 
 
 def test_anthropic_retry_falls_back_on_rate_limit(monkeypatch, mock_anthropic):

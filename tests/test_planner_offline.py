@@ -151,11 +151,15 @@ def test_brief_summary_includes_parent_folder_context():
     brief = FileBrief(
         path="inbox/client-a/proposal.txt",
         parent_name="client-a",
+        parent_path="inbox/client-a",
         filename="proposal.txt",
         extension="txt",
         mtime=datetime(2024, 5, 1).timestamp(),
         title="Proposal",
         head_text="Statement of work",
+        duplicate_group_size=2,
     )
 
     assert "parent=client-a" in brief.summary
+    assert "ancestry=inbox/client-a" in brief.summary
+    assert "dupes=2" in brief.summary

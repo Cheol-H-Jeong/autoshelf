@@ -10,19 +10,23 @@ class FileBriefModel(BaseModel):
 
     path: str
     parent_name: str = ""
+    parent_path: str = ""
     filename: str
     extension: str
     mtime: float
     title: str = ""
     head_text: str = ""
+    duplicate_group_size: int = Field(default=1, ge=1)
 
     @property
     def summary(self) -> str:
         excerpt = self.head_text.replace("\n", " ").strip()[:180]
         parent = self.parent_name.strip() or "-"
+        ancestry = self.parent_path.strip() or "-"
         return (
-            f"{self.filename} | parent={parent} | ext={self.extension} | mtime={int(self.mtime)} | "
-            f"title={self.title} | excerpt={excerpt}"
+            f"{self.filename} | parent={parent} | ancestry={ancestry} | ext={self.extension} | "
+            f"dupes={self.duplicate_group_size} | mtime={int(self.mtime)} | title={self.title} | "
+            f"excerpt={excerpt}"
         )[:300]
 
 
