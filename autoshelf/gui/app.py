@@ -78,6 +78,7 @@ class AutoshelfWindow(QMainWindow):
         self.home_screen.scan_finished.connect(self._complete_scan_status)
         self.apply_screen.apply_started.connect(self._set_apply_started_status)
         self.apply_screen.apply_progressed.connect(self._update_apply_status)
+        self.apply_screen.apply_finished.connect(self._complete_apply_status)
         self.history_screen.undo_queued.connect(self._update_undo_status)
 
     def _apply_runtime_config(self, config: AppConfig) -> None:
@@ -145,13 +146,13 @@ class AutoshelfWindow(QMainWindow):
         )
 
     def _update_apply_status(self, value: int, _message: str) -> None:
-        if value >= 100:
-            self.tray_controller.set_status(
-                t("tray.status_apply_complete", self.config),
-                message_key="tray.notification_apply_complete",
-            )
-            return
         self.tray_controller.set_status(t("tray.status_apply_progress", self.config, percent=value))
+
+    def _complete_apply_status(self) -> None:
+        self.tray_controller.set_status(
+            t("tray.status_apply_complete", self.config),
+            message_key="tray.notification_apply_complete",
+        )
 
     def _update_undo_status(self, count: int) -> None:
         self.tray_controller.set_status(
