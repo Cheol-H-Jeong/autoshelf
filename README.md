@@ -4,7 +4,7 @@
 
 ## Features
 
-- Real Anthropic planner path with tool-use JSON, retries, rate limiting, prompt caching fields, and per-chunk FakeLLM fallback.
+- Real Anthropic planner path with tool-use JSON, jittered retries, a cooldown circuit breaker, prompt caching fields, and per-chunk FakeLLM fallback.
 - Offline deterministic planning for CI and first-run use.
 - Parser coverage for text, pdf, office, hwp, image, code, archive, and media files.
 - Two-phase apply with resumable run plans, hash verification, and undo history.
@@ -66,6 +66,18 @@ Use `python -m autoshelf export /path/to/root` to package the current `manifest.
 For machine consumers, add `--progress json` before the subcommand to emit JSONL progress events on stdout and finish with a single `result` line. That keeps long-running `plan`, `apply`, `export`, `import`, `verify`, and `doctor` runs pipe-friendly for wrappers and automation.
 
 Autoshelf now saves a numbered `schema_version` in `config.toml` and migrates older unversioned configs on load, so desktop settings can evolve without breaking existing installations.
+
+If you run Anthropic planning against unstable connectivity, tune the new reliability knobs in `config.toml`:
+
+```toml
+[llm]
+max_retries = 4
+retry_base_delay_ms = 500
+retry_max_delay_ms = 8000
+retry_jitter_ms = 250
+circuit_breaker_threshold = 3
+circuit_breaker_cooldown_seconds = 30
+```
 
 ## Rules File
 
