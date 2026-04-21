@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.16
+
+- Persisted staged-copy progress in resumable run plans so cross-device applies can recover after an interruption instead of replaying from an ambiguous filesystem state.
+- Taught `autoshelf apply --resume` to promote verified staged artifacts, prune duplicate source files left behind after target promotion, and complete interrupted cross-device moves without creating extra collisions.
+- Expanded `autoshelf verify` and the operator docs to report interrupted copy drift explicitly, including duplicate sources after promotion and missing staged artifacts that need review.
+
 ## v1.0.15
 
 - Upgraded the Linux release bundle to vendor the runtime dependencies already installed on the release builder, add an isolated bootstrap launcher, and verify the packaged install path before publishing the tarball.
