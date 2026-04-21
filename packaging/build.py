@@ -155,6 +155,7 @@ def _stage_bundle(
     _write_bundle_readme(bundle_root, metadata, bundled_wheel.name, runtime_distributions)
     _copy_if_present(project_root / "README.md", docs_dir / "README.md")
     _copy_if_present(project_root / "LICENSE", docs_dir / "LICENSE")
+    _copy_if_present(project_root / "packaging" / "linux" / "autoshelf.1", docs_dir / "autoshelf.1")
     _copy_if_present(
         project_root / "packaging" / "linux" / "autoshelf.desktop",
         bundle_root / "autoshelf.desktop",
@@ -282,6 +283,7 @@ def _write_bundle_readme(
               ~/.local/share/autoshelf/releases/
             - autoshelf.desktop: desktop entry template for Linux shells that support it
             - docs/: copied project README and LICENSE when present
+            - docs/autoshelf.1: generated CLI man page when present
 
             Install
             1. Extract this tarball.

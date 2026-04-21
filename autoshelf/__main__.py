@@ -28,7 +28,7 @@ from autoshelf.verify import verify_exit_code, verify_root
 
 
 def main() -> None:
-    parser = _build_parser()
+    parser = build_parser()
     args = parser.parse_args()
     configure_logging(args.log_level)
     reporter = ProgressReporter(args.command or "gui", args.progress)
@@ -218,7 +218,7 @@ def main() -> None:
         reporter.print_result(history)
 
 
-def _build_parser() -> argparse.ArgumentParser:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="autoshelf")
     parser.add_argument(
         "--log-level", default="info", choices=["debug", "info", "warning", "error"]
@@ -227,63 +227,63 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--progress", default="off", choices=["off", "json"])
     subparsers = parser.add_subparsers(dest="command")
 
-    scan = subparsers.add_parser("scan")
+    scan = subparsers.add_parser("scan", help="Scan a root and persist parsed file context")
     scan.add_argument("root")
     scan.add_argument("--exclude", action="append", default=[])
     scan.add_argument("--json", action="store_true", default=False)
 
-    plan = subparsers.add_parser("plan")
+    plan = subparsers.add_parser("plan", help="Draft a folder plan for a root")
     plan.add_argument("root")
     plan.add_argument("--resume", action="store_true", default=False)
     plan.add_argument("--model", default=None)
     plan.add_argument("--chunk-tokens", type=int, default=None)
     plan.add_argument("--dry-run", action="store_true", default=False)
 
-    apply = subparsers.add_parser("apply")
+    apply = subparsers.add_parser("apply", help="Apply a planned folder layout")
     apply.add_argument("root")
     apply.add_argument("--resume", default=None)
     apply.add_argument("--dry-run", action="store_true", default=False)
     apply.add_argument("--policy", default="append-counter")
     apply.add_argument("--yes", action="store_true", default=False)
 
-    preview = subparsers.add_parser("preview")
+    preview = subparsers.add_parser("preview", help="Build a symlink-only preview tree")
     preview.add_argument("root")
     preview.add_argument("--resume", action="store_true", default=False)
     preview.add_argument("--refresh", action="store_true", default=False)
     preview.add_argument("--policy", default="append-counter")
 
-    undo = subparsers.add_parser("undo")
+    undo = subparsers.add_parser("undo", help="Undo the most recent apply run")
     undo.add_argument("root")
     undo.add_argument("--run-id", default=None)
     undo.add_argument("--dry-run", action="store_true", default=False)
 
-    history = subparsers.add_parser("history")
+    history = subparsers.add_parser("history", help="Show recent apply history")
     history.add_argument("root")
     history.add_argument("--limit", type=int, default=20)
     history.add_argument("--json", action="store_true", default=False)
 
-    verify = subparsers.add_parser("verify")
+    verify = subparsers.add_parser("verify", help="Verify the tree against manifest.jsonl")
     verify.add_argument("root")
 
-    export = subparsers.add_parser("export")
+    export = subparsers.add_parser("export", help="Export a portable audit bundle")
     export.add_argument("root")
     export.add_argument("--output", default=None)
 
-    bundle_import = subparsers.add_parser("import")
+    bundle_import = subparsers.add_parser("import", help="Import a portable audit bundle")
     bundle_import.add_argument("archive")
     bundle_import.add_argument("root")
 
-    subparsers.add_parser("stats")
-    subparsers.add_parser("gui")
-    config_parser = subparsers.add_parser("config")
+    subparsers.add_parser("stats", help="Show global autoshelf usage statistics")
+    subparsers.add_parser("gui", help="Launch the desktop GUI")
+    config_parser = subparsers.add_parser("config", help="Inspect or migrate config.toml")
     config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
-    config_subparsers.add_parser("show")
-    config_migrate = config_subparsers.add_parser("migrate")
+    config_subparsers.add_parser("show", help="Show the current config with migration status")
+    config_migrate = config_subparsers.add_parser("migrate", help="Apply config migrations")
     config_migrate.add_argument("--write", action="store_true", default=False)
     config_migrate.add_argument("--no-backup", action="store_true", default=False)
-    doctor = subparsers.add_parser("doctor")
+    doctor = subparsers.add_parser("doctor", help="Run installation and environment diagnostics")
     doctor.add_argument("root", nargs="?")
-    subparsers.add_parser("version")
+    subparsers.add_parser("version", help="Print the autoshelf version")
     return parser
 
 

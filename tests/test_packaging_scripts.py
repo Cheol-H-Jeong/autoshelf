@@ -34,6 +34,7 @@ def test_build_script_creates_linux_bundle(tmp_path):
     assert "autoshelf-1.0.2-linux-x86_64-bundle/bin/autoshelf" in names
     assert "autoshelf-1.0.2-linux-x86_64-bundle/build-metadata.json" in names
     assert "autoshelf-1.0.2-linux-x86_64-bundle/bundle-manifest.json" in names
+    assert "autoshelf-1.0.2-linux-x86_64-bundle/docs/autoshelf.1" in names
     assert "autoshelf-1.0.2-linux-x86_64-bundle/install.sh" in names
     assert (
         "autoshelf-1.0.2-linux-x86_64-bundle/runtime/site-packages/autoshelf/__init__.py"
@@ -94,6 +95,24 @@ def test_bump_version_script_updates_version_files(tmp_path):
     assert "## v1.0.3" in changelog_text
 
 
+def test_generate_manpage_renders_current_cli(tmp_path):
+    module_path = Path(__file__).resolve().parents[1] / "packaging" / "generate_manpage.py"
+    spec = importlib.util.spec_from_file_location("autoshelf_generate_manpage", module_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    output_path = tmp_path / "autoshelf.1"
+    module.generate_manpage(output_path)
+
+    content = output_path.read_text(encoding="utf-8")
+    assert ".TH AUTOSHELF 1" in content
+    assert ".SS apply" in content
+    assert ".SS verify" in content
+    assert "manifest.jsonl" in content
+
+
 def test_copy_distribution_skips_escaping_paths(tmp_path, monkeypatch):
     build_module = _load_build_module()
     runtime_dir = tmp_path / "runtime"
@@ -152,6 +171,10 @@ def _write_sample_project(root: Path) -> None:
     )
     (root / "packaging" / "linux" / "autoshelf.desktop").write_text(
         "[Desktop Entry]\nName=autoshelf\n",
+        encoding="utf-8",
+    )
+    (root / "packaging" / "linux" / "autoshelf.1").write_text(
+        ".TH AUTOSHELF 1\n",
         encoding="utf-8",
     )
     (root / "README.md").write_text("# autoshelf\n", encoding="utf-8")

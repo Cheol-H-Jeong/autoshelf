@@ -1,0 +1,198 @@
+.TH AUTOSHELF 1 "2026-04-22" "autoshelf 1.0.25" "User Commands"
+.SH NAME
+autoshelf \- offline-first folder organizer with preview, audit, and recovery workflows
+.SH SYNOPSIS
+.B autoshelf
+[global-options] command [command-options]
+.SH DESCRIPTION
+autoshelf scans a root, drafts a reversible organization plan, lets the operator preview the result, applies moves plus shortcuts, and emits manifest-driven audit artifacts for verify and undo.
+.SH GLOBAL OPTIONS
+.TP
+\fB\-\-log\-level LOG_LEVEL\fR
+No additional details.
+.TP
+\fB\-\-config CONFIG\fR
+No additional details.
+.TP
+\fB\-\-progress PROGRESS\fR
+No additional details.
+.SH COMMANDS
+.SS apply
+Apply a planned folder layout
+.br
+Usage: autoshelf apply [\-h] [\-\-resume RESUME] [\-\-dry\-run] [\-\-policy POLICY]
+                       [\-\-yes]
+                       root
+.RS
+.TP
+\fBroot ROOT\fR
+No additional details.
+.TP
+\fB\-\-resume RESUME\fR
+No additional details.
+.TP
+\fB\-\-dry\-run\fR
+No additional details.
+.TP
+\fB\-\-policy POLICY\fR
+No additional details.
+.TP
+\fB\-\-yes\fR
+No additional details.
+.RE
+.SS config
+Inspect or migrate config.toml
+.br
+Usage: autoshelf config [\-h] {show,migrate} ...
+.SS doctor
+Run installation and environment diagnostics
+.br
+Usage: autoshelf doctor [\-h] [root]
+.RS
+.TP
+\fBroot ROOT\fR
+No additional details.
+.RE
+.SS export
+Export a portable audit bundle
+.br
+Usage: autoshelf export [\-h] [\-\-output OUTPUT] root
+.RS
+.TP
+\fBroot ROOT\fR
+No additional details.
+.TP
+\fB\-\-output OUTPUT\fR
+No additional details.
+.RE
+.SS gui
+Launch the desktop GUI
+.br
+Usage: autoshelf gui [\-h]
+.SS history
+Show recent apply history
+.br
+Usage: autoshelf history [\-h] [\-\-limit LIMIT] [\-\-json] root
+.RS
+.TP
+\fBroot ROOT\fR
+No additional details.
+.TP
+\fB\-\-limit LIMIT\fR
+No additional details.
+.TP
+\fB\-\-json\fR
+No additional details.
+.RE
+.SS import
+Import a portable audit bundle
+.br
+Usage: autoshelf import [\-h] archive root
+.RS
+.TP
+\fBarchive ARCHIVE\fR
+No additional details.
+.TP
+\fBroot ROOT\fR
+No additional details.
+.RE
+.SS plan
+Draft a folder plan for a root
+.br
+Usage: autoshelf plan [\-h] [\-\-resume] [\-\-model MODEL]
+                      [\-\-chunk\-tokens CHUNK_TOKENS] [\-\-dry\-run]
+                      root
+.RS
+.TP
+\fBroot ROOT\fR
+No additional details.
+.TP
+\fB\-\-resume\fR
+No additional details.
+.TP
+\fB\-\-model MODEL\fR
+No additional details.
+.TP
+\fB\-\-chunk\-tokens CHUNK_TOKENS\fR
+No additional details.
+.TP
+\fB\-\-dry\-run\fR
+No additional details.
+.RE
+.SS preview
+Build a symlink\-only preview tree
+.br
+Usage: autoshelf preview [\-h] [\-\-resume] [\-\-refresh] [\-\-policy POLICY] root
+.RS
+.TP
+\fBroot ROOT\fR
+No additional details.
+.TP
+\fB\-\-resume\fR
+No additional details.
+.TP
+\fB\-\-refresh\fR
+No additional details.
+.TP
+\fB\-\-policy POLICY\fR
+No additional details.
+.RE
+.SS scan
+Scan a root and persist parsed file context
+.br
+Usage: autoshelf scan [\-h] [\-\-exclude EXCLUDE] [\-\-json] root
+.RS
+.TP
+\fBroot ROOT\fR
+No additional details.
+.TP
+\fB\-\-exclude EXCLUDE\fR
+No additional details.
+.TP
+\fB\-\-json\fR
+No additional details.
+.RE
+.SS stats
+Show global autoshelf usage statistics
+.br
+Usage: autoshelf stats [\-h]
+.SS undo
+Undo the most recent apply run
+.br
+Usage: autoshelf undo [\-h] [\-\-run\-id RUN_ID] [\-\-dry\-run] root
+.RS
+.TP
+\fBroot ROOT\fR
+No additional details.
+.TP
+\fB\-\-run\-id RUN_ID\fR
+No additional details.
+.TP
+\fB\-\-dry\-run\fR
+No additional details.
+.RE
+.SS verify
+Verify the tree against manifest.jsonl
+.br
+Usage: autoshelf verify [\-h] root
+.RS
+.TP
+\fBroot ROOT\fR
+No additional details.
+.RE
+.SS version
+Print the autoshelf version
+.br
+Usage: autoshelf version [\-h]
+.SH FILES
+.TP
+.I .autoshelfrc.yaml
+Per-root planning rules file read before scan, plan, preview, apply, and doctor.
+.TP
+.I manifest.jsonl
+Tamper-evident manifest written after apply and checked by verify.
+.TP
+.I .autoshelf/
+Working area for drafts, preview trees, run plans, run state, staging, and imports.
+.SH SEE ALSO
+docs/USER_GUIDE.md, docs/ARCHITECTURE.md, packaging/build.py
