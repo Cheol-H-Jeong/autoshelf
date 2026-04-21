@@ -137,7 +137,7 @@ mappings:
 ## GUI
 
 - Home: folder selection, recent folders, scan status, offline banner.
-- Review: current/proposed tree panes, colored move previews, assignment table, and folder rationale hints.
+- Review: current/proposed tree panes, colored move previews, assignment table, folder rationale hints, and explicit quarantine review actions for low-confidence files.
 - Apply: progress bar, token counter, log, cancel button.
 - History: run table with undo/open/show-manifest actions.
 - Settings: persisted model pickers, chunk slider, locale/theme controls, and saved configuration feedback that applies immediately to the live window.
@@ -147,6 +147,12 @@ Keyboard shortcuts:
 - `F5`: switch to Home and rerun the scan preview.
 - `Ctrl+Enter`: switch to Apply and start the apply workflow.
 - `Ctrl+Z`: switch to History and queue an undo review action.
+
+Review quarantine workflow:
+
+- Low-confidence files are surfaced as `Quarantine` items in the Review tab instead of looking like ordinary moves.
+- `Re-plan Quarantine` uses the file's current path and extension to suggest a safer destination without rerunning the whole plan.
+- `Clear Quarantine` removes the quarantine target and keeps the file in its current folder so an operator can ship the rest of the plan cleanly.
 
 ## Packaging
 

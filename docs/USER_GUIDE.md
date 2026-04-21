@@ -60,6 +60,12 @@ Desktop shortcuts in the GUI:
 - `Ctrl+Z` jumps to History and stages an undo review request.
 - Saving Settings applies theme and language changes to the live window immediately.
 
+Quarantine review in the GUI:
+
+- Files below the safe confidence threshold show up as `Quarantine` in Review instead of blending into the normal move list.
+- `Re-plan Quarantine` derives a safer folder suggestion from the source path and file type for the selected quarantined file, or for every quarantined file if nothing is selected.
+- `Clear Quarantine` keeps the selected quarantined file in its current folder and removes the quarantine target, which is useful when the operator wants to approve the rest of the plan without forcing a weak move.
+
 Tray workflow:
 
 - Closing the main window minimizes autoshelf to the system tray instead of terminating an active desktop session.
