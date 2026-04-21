@@ -60,6 +60,13 @@ Desktop shortcuts in the GUI:
 - `Ctrl+Z` jumps to History and stages an undo review request.
 - Saving Settings applies theme and language changes to the live window immediately.
 
+Tray workflow:
+
+- Closing the main window minimizes autoshelf to the system tray instead of terminating an active desktop session.
+- The tray menu always shows the last scan/apply/undo status so operators can tell whether the last run finished cleanly.
+- `Scan Downloads` sets Home to `~/Downloads` and starts a fresh scan without reopening the full CLI workflow.
+- `Show window` restores the main review window; `Quit autoshelf` exits fully.
+
 If an apply is interrupted, rerun the recorded operation instead of starting over:
 
 ```bash
