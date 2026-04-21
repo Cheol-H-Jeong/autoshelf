@@ -116,7 +116,9 @@ Supported controls:
 - `pinned_dirs`: folders that must exist in the proposed tree even if the planner would not invent them.
 - `exclude_globs`: file or path globs that autoshelf should ignore entirely.
 - `mappings`: forced file placement rules.
+- `source_globs`: optional source-folder filters for a mapping rule.
 - `priority`: precedence between overlapping mapping rules. Higher numbers win.
+- `target: "@current"`: keep matching files in their current source folder while still enforcing a rule.
 - `also_relevant`: extra shortcut locations to create during apply.
 
 Example:
@@ -136,6 +138,8 @@ exclude_globs:
 mappings:
   - glob: "clients/acme/*.pdf"
     priority: 20
+    source_globs:
+      - Inbox/**
     target: Clients/Acme/Contracts
     also_relevant:
       - Finance
@@ -162,6 +166,16 @@ mappings:
     target: Images/Screenshots
 ```
 
+Keep working notes in place, but still apply deterministic policy:
+
+```yaml
+mappings:
+  - glob: "*.txt"
+    source_globs:
+      - Clients/**/Working
+    target: "@current"
+```
+
 Prefer a customer-specific rule over a generic PDF rule:
 
 ```yaml
@@ -181,6 +195,13 @@ Reserve empty destination folders ahead of time:
 pinned_dirs:
   - Legal/Contracts
   - Finance/Quarterly Reports
+```
+
+Inspect the parsed rules or explain a specific path before moving anything:
+
+```bash
+python -m autoshelf rules show /path/to/root
+python -m autoshelf rules match /path/to/root Inbox/Notes/draft.txt Archive/draft.txt
 ```
 
 ## Preview and Verification

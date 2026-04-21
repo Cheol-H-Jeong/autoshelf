@@ -136,14 +136,27 @@ exclude_globs:
 mappings:
   - glob: "*.invoice.pdf"
     priority: 10
+    source_globs:
+      - Inbox/**
     target: Finance/Invoices
     also_relevant:
       - Documents
   - glob: "Screenshots/*.png"
     target: Images/Screenshots
+  - glob: "*.txt"
+    source_globs:
+      - Clients/**/Working
+    target: "@current"
 ```
 
-`exclude_globs` removes matching files from scan, plan, preview, and apply. When multiple mapping rules overlap, the highest `priority` wins. Run `python -m autoshelf doctor /path/to/root` to confirm the rules file parses cleanly and to see the parsed rule counts.
+`exclude_globs` removes matching files from scan, plan, preview, and apply. `source_globs` scopes a mapping rule to specific source folders. `target: "@current"` keeps matching files in their current source folder while still letting autoshelf add shortcuts or enforce deterministic policy. When multiple mapping rules overlap, the highest `priority` wins, with more specific source-scoped rules winning ties. Run `python -m autoshelf doctor /path/to/root` to confirm the rules file parses cleanly and to see parsed counts including source-scoped and `@current` rules.
+
+Inspect rules without running a plan:
+
+```bash
+python -m autoshelf rules show /path/to/root
+python -m autoshelf rules match /path/to/root Inbox/Notes/draft.txt Archive/draft.txt
+```
 
 ## GUI
 
