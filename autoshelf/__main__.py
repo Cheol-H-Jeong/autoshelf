@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict
+import sys
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 from sqlalchemy import select
@@ -32,28 +34,56 @@ from autoshelf.undo import undo_last_apply
 from autoshelf.verify import verify_exit_code, verify_root
 
 
-def main() -> None:
+@dataclass(slots=True)
+class CommandOutcome:
+    exit_code: int = 0
+    payload: Any = None
+    emit_result: bool = True
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     configure_logging(args.log_level)
-    reporter = ProgressReporter(args.command or "gui", args.progress)
+    reporter = ProgressReporter(
+        args.command or "gui",
+        args.progress,
+        argv=list(argv or sys.argv[1:]),
+        cwd=str(Path.cwd()),
+        version=__version__,
+    )
+    reporter.emit_command("started", data=_command_metadata(args))
+    try:
+        outcome = _run_command(args, reporter)
+    except Exception as exc:
+        logger.exception("command failed")
+        reporter.emit_error(exc)
+        raise
+    reporter.emit_command(
+        "completed" if outcome.exit_code == 0 else "failed",
+        exit_code=outcome.exit_code,
+        data=_command_metadata(args),
+    )
+    if outcome.emit_result:
+        reporter.print_result(outcome.payload)
+    return outcome.exit_code
+
+
+def _run_command(args: argparse.Namespace, reporter: ProgressReporter) -> CommandOutcome:
     if args.command is None or args.command == "gui":
-        config = AppConfig.load(Path(args.config) if args.config else None)
+        AppConfig.load(Path(args.config) if args.config else None)
         from autoshelf.gui.app import launch_gui
 
         launch_gui(test_mode=False)
-        return
+        return CommandOutcome(emit_result=False)
     if args.command == "version":
-        reporter.print_result(__version__)
-        return
+        return CommandOutcome(payload=__version__)
     if args.command == "stats":
-        reporter.print_result(collect_stats())
-        return
+        return CommandOutcome(payload=collect_stats())
     if args.command == "config":
         config_path = Path(args.config) if args.config else None
         if args.config_command == "show":
-            reporter.print_result(inspect_config(config_path).model_dump(mode="json"))
-            return
+            return CommandOutcome(payload=inspect_config(config_path).model_dump(mode="json"))
         if args.config_command == "migrate":
             reporter.emit("config.migrate.started")
             result = migrate_config_file(
@@ -65,39 +95,36 @@ def main() -> None:
                 "config.migrate.completed",
                 data={"updated": result.updated, "backup_path": result.backup_path},
             )
-            reporter.print_result(result.model_dump(mode="json"))
-            return
+            return CommandOutcome(payload=result.model_dump(mode="json"))
     if args.command == "rules":
         target_root = Path(args.root).expanduser().resolve()
         rules = load_planning_rules(target_root)
         if args.rules_command == "show":
-            reporter.print_result(
-                {
+            return CommandOutcome(
+                payload={
                     "path": str(target_root / ".autoshelfrc.yaml"),
                     "rules": rules.model_dump(mode="json"),
                 }
             )
-            return
         if args.rules_command == "match":
-            reporter.print_result(
-                [
+            return CommandOutcome(
+                payload=[
                     evaluate_path_rules(path, rules).model_dump(mode="json")
                     for path in args.paths
                 ]
             )
-            return
     if args.command == "doctor":
         reporter.emit("doctor.started")
         report = run_diagnostics(Path(args.root).resolve() if getattr(args, "root", None) else None)
-        reporter.emit("doctor.completed", data={"status": doctor_exit_code(report)})
-        reporter.print_result(report)
-        raise SystemExit(doctor_exit_code(report))
+        exit_code = doctor_exit_code(report)
+        reporter.emit("doctor.completed", data={"status": exit_code})
+        return CommandOutcome(exit_code=exit_code, payload=report)
     if args.command == "verify":
         reporter.emit("verify.started")
         report = verify_root(Path(args.root).expanduser().resolve())
-        reporter.emit("verify.completed", data={"status": verify_exit_code(report)})
-        reporter.print_result(report.model_dump(mode="json"))
-        raise SystemExit(verify_exit_code(report))
+        exit_code = verify_exit_code(report)
+        reporter.emit("verify.completed", data={"status": exit_code})
+        return CommandOutcome(exit_code=exit_code, payload=report.model_dump(mode="json"))
     if args.command == "export":
         reporter.emit("export.started")
         result = export_bundle(
@@ -115,8 +142,7 @@ def main() -> None:
             "history_entries": len(result.metadata.history),
         }
         reporter.emit("export.completed", data={"archive_path": str(result.archive_path)})
-        reporter.print_result(payload)
-        return
+        return CommandOutcome(payload=payload)
     if args.command == "import":
         reporter.emit("import.started")
         result = import_bundle(
@@ -136,8 +162,7 @@ def main() -> None:
             "history_entries": len(result.metadata.history),
         }
         reporter.emit("import.completed", data={"destination_dir": str(result.destination_dir)})
-        reporter.print_result(payload)
-        return
+        return CommandOutcome(payload=payload)
 
     config = AppConfig.load(Path(args.config) if args.config else None)
     root = Path(args.root).expanduser().resolve()
@@ -164,15 +189,13 @@ def main() -> None:
         _persist_scan(root, files, config)
         record_event("scan", {"files": len(files)})
         reporter.emit("scan.completed", current=len(files), total=len(files))
-        reporter.print_result({"files": len(files)})
-        return
+        return CommandOutcome(payload={"files": len(files)})
     if args.command == "plan":
         reporter.emit("plan.started", message=str(root))
         result = _plan(root, config, resume=args.resume, reporter=reporter)
         record_event("plan", result.usage.model_dump())
         reporter.emit("plan.completed", data={"unsure_paths": len(result.unsure_paths)})
-        reporter.print_result({"tree": result.tree, "unsure_paths": result.unsure_paths})
-        return
+        return CommandOutcome(payload={"tree": result.tree, "unsure_paths": result.unsure_paths})
     if args.command == "preview":
         reporter.emit("preview.started", message=str(root))
         draft = load_draft(root) if not args.refresh else None
@@ -196,8 +219,7 @@ def main() -> None:
             total=result.assignments,
             data={"preview_dir": result.preview_dir, "shortcuts": result.shortcuts},
         )
-        reporter.print_result(result.model_dump(mode="json"))
-        return
+        return CommandOutcome(payload=result.model_dump(mode="json"))
     if args.command == "apply":
         reporter.emit("apply.plan.started", message=str(root))
         result = _plan(root, config, resume=False, reporter=reporter)
@@ -223,11 +245,10 @@ def main() -> None:
             )
         except ApplyInterruptedError as exc:
             reporter.emit("apply.interrupted", message=str(exc))
-            raise SystemExit(130) from exc
+            return CommandOutcome(exit_code=130, payload={"interrupted": True, "message": str(exc)})
         record_event("apply", {"moved": len(outcome.moved), **result.usage.model_dump()})
         reporter.emit("apply.completed", data={"moved": len(outcome.moved)})
-        reporter.print_result({"run_id": outcome.run_id, "dry_run": outcome.dry_run})
-        return
+        return CommandOutcome(payload={"run_id": outcome.run_id, "dry_run": outcome.dry_run})
     if args.command == "undo":
         reporter.emit("undo.started", message=str(root))
         outcome = undo_last_apply(
@@ -235,11 +256,11 @@ def main() -> None:
         )
         record_event("undo", {"undone": outcome.undone, "conflicts": len(outcome.conflicts)})
         reporter.emit("undo.completed", data={"undone": outcome.undone})
-        reporter.print_result(asdict(outcome))
-        return
+        return CommandOutcome(payload=asdict(outcome))
     if args.command == "history":
         history = Database(default_db_path(root)).run_history(root, limit=args.limit)
-        reporter.print_result(history)
+        return CommandOutcome(payload=history)
+    raise RuntimeError(f"unsupported command: {args.command}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -419,6 +440,20 @@ def _plan(
     )
 
 
+def _command_metadata(args: argparse.Namespace) -> dict[str, object]:
+    metadata: dict[str, object] = {}
+    for name in ("root", "archive", "output", "config"):
+        value = getattr(args, name, None)
+        if value is None:
+            continue
+        metadata[name] = str(Path(value).expanduser()) if name != "output" else str(value)
+    for name in ("config_command", "rules_command"):
+        value = getattr(args, name, None)
+        if value is not None:
+            metadata[name] = value
+    return metadata
+
+
 if __name__ == "__main__":
     logger.disable("autoshelf")
-    main()
+    raise SystemExit(main())

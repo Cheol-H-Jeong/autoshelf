@@ -5,6 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from autoshelf import __version__
 from autoshelf.applier import apply_plan
 from autoshelf.apply_state import run_state_path, write_run_plan, write_run_state
 from autoshelf.config import AppConfig
@@ -218,10 +219,68 @@ def test_cli_plan_progress_json_streams_events_and_result(tmp_path):
 
     events = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
     assert events
+    assert events[0]["event"] == "command"
+    assert events[0]["status"] == "started"
     assert all("event" in event for event in events)
     assert events[-1]["event"] == "result"
+    assert events[-2]["event"] == "command"
+    assert events[-2]["status"] == "completed"
     assert "tree" in events[-1]["payload"]
     assert any(event.get("phase") == "plan.parse" for event in events[:-1])
+
+
+def test_cli_version_progress_json_reports_command_lifecycle():
+    completed = subprocess.run(
+        [sys.executable, "-m", "autoshelf", "--progress", "json", "version"],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[1],
+        check=True,
+    )
+
+    events = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
+
+    assert [event["event"] for event in events] == ["command", "command", "result"]
+    assert events[0]["status"] == "started"
+    assert events[0]["argv"] == ["--progress", "json", "version"]
+    assert events[0]["version"] == __version__
+    assert events[1]["status"] == "completed"
+    assert events[1]["exit_code"] == 0
+    assert events[2]["payload"] == __version__
+
+
+def test_cli_verify_progress_json_marks_failed_command_and_keeps_report_payload(tmp_path):
+    (tmp_path / "draft.txt").write_text("hello", encoding="utf-8")
+    assignment = PlannerAssignment(path="draft.txt", primary_dir=["Docs"], summary="hello")
+    run_id = "cli-progress-verify-failure"
+    write_run_plan(tmp_path, [assignment], run_id)
+    write_run_state(
+        run_state_path(tmp_path, run_id),
+        run_id=run_id,
+        status="interrupted",
+        current_path="draft.txt",
+        completed_entries=0,
+        total_entries=1,
+        last_error="simulated interruption",
+    )
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "autoshelf", "--progress", "json", "verify", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[1],
+    )
+
+    assert completed.returncode == 1
+    events = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
+
+    assert events[0]["event"] == "command"
+    assert events[0]["status"] == "started"
+    assert events[-2]["event"] == "command"
+    assert events[-2]["status"] == "failed"
+    assert events[-2]["exit_code"] == 1
+    assert events[-1]["event"] == "result"
+    assert any(issue["code"] == "incomplete_run" for issue in events[-1]["payload"]["issues"])
 
 
 def test_cli_config_show_reports_pending_migrations(tmp_path):
