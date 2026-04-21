@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from loguru import logger
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QMainWindow, QTabWidget
 
 from autoshelf.config import AppConfig
@@ -12,6 +14,7 @@ from autoshelf.gui.home import HomeScreen
 from autoshelf.gui.review import ReviewScreen
 from autoshelf.gui.settings import SettingsScreen
 from autoshelf.gui.theme import apply_theme
+from autoshelf.gui.tray import TrayController
 from autoshelf.i18n import t
 
 
@@ -32,7 +35,9 @@ class AutoshelfWindow(QMainWindow):
         self.tabs.addTab(self.settings_screen, "")
         self.setCentralWidget(self.tabs)
         self.resize(1200, 760)
+        self.tray_controller = TrayController(self, self.config)
         self._bind_shortcuts()
+        self._bind_tray()
         self.settings_screen.config_saved.connect(self._apply_runtime_config)
         self._refresh_labels()
         logger.debug("Initialized autoshelf main window")
@@ -65,6 +70,16 @@ class AutoshelfWindow(QMainWindow):
         self.tabs.setCurrentWidget(self.home_screen)
         self.home_screen.start_scan()
 
+    def _bind_tray(self) -> None:
+        self.tray_controller.scan_downloads_requested.connect(self._scan_downloads_from_tray)
+        self.tray_controller.toggle_window_requested.connect(self._toggle_window_visibility)
+        self.tray_controller.quit_requested.connect(self.close)
+        self.home_screen.scan_started.connect(self._update_scan_status)
+        self.home_screen.scan_finished.connect(self._complete_scan_status)
+        self.apply_screen.apply_started.connect(self._set_apply_started_status)
+        self.apply_screen.apply_progressed.connect(self._update_apply_status)
+        self.history_screen.undo_queued.connect(self._update_undo_status)
+
     def _apply_runtime_config(self, config: AppConfig) -> None:
         self.config = config
         app = QApplication.instance()
@@ -72,6 +87,7 @@ class AutoshelfWindow(QMainWindow):
             apply_theme(app, config)
         self._refresh_labels()
         self.settings_screen.apply_config(config)
+        self.tray_controller.refresh_labels(config)
         logger.debug("Applied runtime GUI configuration update")
 
     def _refresh_labels(self) -> None:
@@ -85,6 +101,69 @@ class AutoshelfWindow(QMainWindow):
         self.review_screen.apply_config(self.config)
         self.apply_screen.apply_config(self.config)
         self.history_screen.apply_config(self.config)
+
+    def _scan_downloads_from_tray(self) -> None:
+        downloads_path = self.tray_controller.downloads_path
+        self.tabs.setCurrentWidget(self.home_screen)
+        self.home_screen.start_scan(downloads_path)
+        self._restore_window()
+
+    def _toggle_window_visibility(self) -> None:
+        if self.isVisible():
+            self.hide()
+        else:
+            self._restore_window()
+        self.tray_controller.sync_window_visibility()
+
+    def _restore_window(self) -> None:
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+        self.tray_controller.sync_window_visibility()
+
+    def _update_scan_status(self, root: str) -> None:
+        target = root or str(Path.home())
+        self.tray_controller.set_status(
+            t("tray.status_scan_running", self.config, path=target),
+            message_key="tray.notification_scan_started",
+            message_kwargs={"path": target},
+        )
+
+    def _complete_scan_status(self, root: str, stats: dict) -> None:
+        files = int(stats.get("files", 0))
+        target = root or str(Path.home())
+        self.tray_controller.set_status(
+            t("tray.status_scan_complete", self.config, count=files),
+            message_key="tray.notification_scan_complete",
+            message_kwargs={"count": files, "path": target},
+        )
+
+    def _set_apply_started_status(self) -> None:
+        self.tray_controller.set_status(
+            t("tray.status_apply_running", self.config),
+            message_key="tray.notification_apply_started",
+        )
+
+    def _update_apply_status(self, value: int, _message: str) -> None:
+        if value >= 100:
+            self.tray_controller.set_status(
+                t("tray.status_apply_complete", self.config),
+                message_key="tray.notification_apply_complete",
+            )
+            return
+        self.tray_controller.set_status(t("tray.status_apply_progress", self.config, percent=value))
+
+    def _update_undo_status(self, count: int) -> None:
+        self.tray_controller.set_status(
+            t("tray.status_undo_ready", self.config, count=count),
+            message_key="tray.notification_undo_ready",
+            message_kwargs={"count": count},
+        )
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self.tray_controller.handle_close_event(event):
+            return
+        super().closeEvent(event)
 
 
 def launch_gui(test_mode: bool = False, config: AppConfig | None = None):

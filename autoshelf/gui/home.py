@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from loguru import logger
 from PySide6.QtCore import QObject, QThread, Signal
 from PySide6.QtWidgets import (
@@ -28,11 +30,15 @@ class ScanWorker(QObject):
 
 
 class HomeScreen(QWidget):
+    scan_started = Signal(str)
+    scan_finished = Signal(str, dict)
+
     def __init__(self) -> None:
         super().__init__()
         self.thread: QThread | None = None
         self.worker: ScanWorker | None = None
         self.scan_requests = 0
+        self.last_scan_root = ""
         self.setAcceptDrops(True)
 
         layout = QVBoxLayout(self)
@@ -59,11 +65,14 @@ class HomeScreen(QWidget):
         layout.addWidget(self.plan_button)
         self.apply_config()
 
-    def start_scan(self) -> None:
+    def start_scan(self, root: Path | None = None) -> None:
         if self.thread is not None and self.thread.isRunning():
             logger.debug("Ignoring scan request because a scan is already running")
             return
         self.scan_requests += 1
+        if root is not None:
+            self.root_input.setText(str(root))
+        self.last_scan_root = self.root_input.text().strip()
         self.thread = QThread(self)
         self.worker = ScanWorker()
         self.worker.moveToThread(self.thread)
@@ -71,12 +80,18 @@ class HomeScreen(QWidget):
         self.worker.finished.connect(self._render_stats)
         self.worker.finished.connect(self.thread.quit)
         self.thread.finished.connect(self._cleanup_thread)
-        logger.debug("Starting GUI scan request {}", self.scan_requests)
+        self.scan_started.emit(self.last_scan_root)
+        logger.debug(
+            "Starting GUI scan request {} for root {}",
+            self.scan_requests,
+            self.last_scan_root or ".",
+        )
         self.thread.start()
 
     def _render_stats(self, stats: dict) -> None:
         self.stats_view.setPlainText(str(stats))
         self.plan_button.setEnabled(True)
+        self.scan_finished.emit(self.last_scan_root, stats)
         logger.debug("Rendered GUI scan stats")
 
     def _cleanup_thread(self) -> None:

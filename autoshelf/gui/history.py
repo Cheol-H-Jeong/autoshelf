@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from loguru import logger
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -16,6 +17,8 @@ from autoshelf.i18n import t
 
 
 class HistoryScreen(QWidget):
+    undo_queued = Signal(int)
+
     def __init__(self) -> None:
         super().__init__()
         self.undo_requests = 0
@@ -44,6 +47,7 @@ class HistoryScreen(QWidget):
         self.status_label.setText(
             t("history.undo_requested", config, count=self.undo_requests)
         )
+        self.undo_queued.emit(self.undo_requests)
         logger.debug("Queued GUI undo request {}", self.undo_requests)
 
     def apply_config(self, config: AppConfig | None = None) -> None:

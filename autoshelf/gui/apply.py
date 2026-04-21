@@ -18,6 +18,10 @@ class ApplyWorker(QObject):
 
 
 class ApplyScreen(QWidget):
+    apply_started = Signal()
+    apply_progressed = Signal(int, str)
+    apply_finished = Signal()
+
     def __init__(self) -> None:
         super().__init__()
         self.thread: QThread | None = None
@@ -44,11 +48,13 @@ class ApplyScreen(QWidget):
         self.apply_requests += 1
         self.progress_bar.setValue(0)
         self.log_view.append(t("apply.started"))
+        self.apply_started.emit()
         self.thread = QThread(self)
         self.worker = ApplyWorker()
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.progress.connect(self._update_progress)
+        self.worker.finished.connect(self.apply_finished.emit)
         self.worker.finished.connect(self.thread.quit)
         self.thread.finished.connect(self._cleanup_thread)
         logger.debug("Starting GUI apply request {}", self.apply_requests)
@@ -57,6 +63,7 @@ class ApplyScreen(QWidget):
     def _update_progress(self, value: int, message: str) -> None:
         self.progress_bar.setValue(value)
         self.log_view.append(message)
+        self.apply_progressed.emit(value, message)
 
     def _cleanup_thread(self) -> None:
         logger.debug("Cleaning up GUI apply worker thread")
