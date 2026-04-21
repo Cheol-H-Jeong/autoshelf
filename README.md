@@ -49,6 +49,32 @@ Offline planning is used automatically when `ANTHROPIC_API_KEY` is unset or `llm
 
 After an apply, run `python -m autoshelf verify /path/to/root` to confirm the on-disk tree still matches the manifest hash chain.
 
+## Rules File
+
+Install `autoshelf` with `.[rules]` if you want YAML rule files without the full optional stack:
+
+```bash
+pip install -e .[rules]
+```
+
+Place `.autoshelfrc.yaml` at the root you plan or apply. Autoshelf reads it before planning, keeps pinned folders in the proposed tree, and forces matching files into the configured targets.
+
+```yaml
+version: 1
+pinned_dirs:
+  - Finance/Taxes
+  - Documents/Receipts
+mappings:
+  - glob: "*.invoice.pdf"
+    target: Finance/Invoices
+    also_relevant:
+      - Documents
+  - glob: "Screenshots/*.png"
+    target: Images/Screenshots
+```
+
+Run `python -m autoshelf doctor /path/to/root` to confirm the rules file parses cleanly.
+
 ## GUI
 
 - Home: folder selection, recent folders, scan status, offline banner.
