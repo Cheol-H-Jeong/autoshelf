@@ -15,7 +15,9 @@ from autoshelf.db import ContextRecord, Database, FileRecord, default_db_path
 from autoshelf.doctor import doctor_exit_code, run_diagnostics
 from autoshelf.logging_utils import configure_logging
 from autoshelf.parsers import parse_file
+from autoshelf.planner.draft import load_draft
 from autoshelf.planner.pipeline import PlannerPipeline
+from autoshelf.preview import build_preview
 from autoshelf.progress import ProgressReporter
 from autoshelf.scanner import scan_directory
 from autoshelf.stats import collect_stats, record_event
@@ -112,6 +114,31 @@ def main() -> None:
         reporter.emit("plan.completed", data={"unsure_paths": len(result.unsure_paths)})
         reporter.print_result({"tree": result.tree, "unsure_paths": result.unsure_paths})
         return
+    if args.command == "preview":
+        reporter.emit("preview.started", message=str(root))
+        draft = load_draft(root) if not args.refresh else None
+        reused_draft = draft is not None and bool(draft.assignments)
+        if reused_draft:
+            assignments = draft.assignments
+            reporter.emit("preview.plan.reused", current=len(assignments), total=len(assignments))
+        else:
+            plan_result = _plan(root, config, resume=args.resume, reporter=reporter)
+            record_event("plan", plan_result.usage.model_dump())
+            assignments = plan_result.assignments
+        result = build_preview(
+            root,
+            assignments,
+            conflict_policy=args.policy,
+            reused_draft=reused_draft,
+        )
+        reporter.emit(
+            "preview.completed",
+            current=result.assignments,
+            total=result.assignments,
+            data={"preview_dir": result.preview_dir, "shortcuts": result.shortcuts},
+        )
+        reporter.print_result(result.model_dump(mode="json"))
+        return
     if args.command == "apply":
         reporter.emit("apply.plan.started", message=str(root))
         result = _plan(root, config, resume=False, reporter=reporter)
@@ -183,6 +210,12 @@ def _build_parser() -> argparse.ArgumentParser:
     apply.add_argument("--dry-run", action="store_true", default=False)
     apply.add_argument("--policy", default="append-counter")
     apply.add_argument("--yes", action="store_true", default=False)
+
+    preview = subparsers.add_parser("preview")
+    preview.add_argument("root")
+    preview.add_argument("--resume", action="store_true", default=False)
+    preview.add_argument("--refresh", action="store_true", default=False)
+    preview.add_argument("--policy", default="append-counter")
 
     undo = subparsers.add_parser("undo")
     undo.add_argument("root")

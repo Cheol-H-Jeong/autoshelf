@@ -25,6 +25,7 @@ def test_cli_help_lists_expected_subcommands():
     for name in [
         "scan",
         "plan",
+        "preview",
         "apply",
         "undo",
         "history",
@@ -145,3 +146,33 @@ def test_cli_apply_progress_json_streams_events_and_result(tmp_path):
     assert events[-1]["event"] == "result"
     assert "run_id" in events[-1]["payload"]
     assert any(event.get("phase") == "apply.moved" for event in events[:-1])
+
+
+def test_cli_preview_builds_browsable_tree_from_draft(tmp_path):
+    (tmp_path / "draft.txt").write_text("hello", encoding="utf-8")
+
+    planned = subprocess.run(
+        [sys.executable, "-m", "autoshelf", "plan", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[1],
+        check=True,
+    )
+    assert '"tree"' in planned.stdout
+    assert (tmp_path / ".autoshelf" / "plan_draft.json").exists()
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "autoshelf", "preview", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[1],
+        check=True,
+    )
+
+    payload = json.loads(completed.stdout)
+    preview_dir = Path(payload["preview_dir"])
+    links = payload["links"]
+    assert payload["reused_draft"] is True
+    assert preview_dir.exists()
+    assert links
+    assert (preview_dir / links[0]["preview_path"]).is_symlink()
