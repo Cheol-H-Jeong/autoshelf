@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import asdict
 from pathlib import Path
 
 from loguru import logger
@@ -87,7 +88,7 @@ def main() -> None:
             root, default_db_path(root), run_id=args.run_id, dry_run=args.dry_run
         )
         record_event("undo", {"undone": outcome.undone, "conflicts": len(outcome.conflicts)})
-        print(json.dumps(outcome.__dict__, ensure_ascii=False, default=str))
+        print(json.dumps(asdict(outcome), ensure_ascii=False, default=str))
         return
     if args.command == "history":
         history = Database(default_db_path(root)).run_history(root, limit=args.limit)
