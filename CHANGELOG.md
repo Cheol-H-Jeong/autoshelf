@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.10
+
+- Added a safe `autoshelf preview <root>` command that materializes `.autoshelf/preview/` as a browsable symlink tree, letting operators inspect the proposed layout before moving live files.
+- Reused the same target-resolution logic for preview and apply so collision handling stays consistent, including numbered `file (2).ext` destinations when names would clash.
+- Documented the preview workflow in the README and added regression coverage for preview tree creation, duplicate-name rendering, and CLI draft reuse.
+
 ## v1.0.9
 
 - Added interrupt-aware apply state files under `.autoshelf/runs/` so live organization runs record current progress, survive resumptions cleanly, and exit with a distinct interrupted status when SIGINT or SIGTERM lands mid-run.
