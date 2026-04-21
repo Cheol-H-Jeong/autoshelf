@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.3
+
+- Added a working Linux release bundle flow that emits a versioned `tar.gz` with the project wheel, installer script, desktop entry, copied docs, and SHA-256 checksum.
+- Added `packaging/bump_version.py` plus `Makefile` targets so patch, minor, and major release bumps update the package version files and changelog heading consistently.
+- Added regression coverage for the packaging scripts and documented the Linux bundle and `pipx` install workflow in the README.
+
 ## v1.0.2
 
 - Added `.autoshelfrc.yaml` planning rules with pinned folders and glob-based folder overrides applied before and after planning.
