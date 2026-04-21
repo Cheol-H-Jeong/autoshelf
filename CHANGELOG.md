@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.19
+
+- Upgraded the Review tab into a clearer diff surface with action labels, per-file before/after summaries, localized counts, and stronger confidence/rationale overlays so operators can trust proposed moves faster.
+- Preserved live GUI language switching for the Review tab by rebuilding loaded preview content when runtime locale changes are saved from Settings.
+- Added commercial-grade operator and developer documentation with a dedicated architecture guide, contribution guide, issue templates, PR checklist, and regression coverage that keeps those assets present.
+
 ## v1.0.18
 
 - Split config migrations into numbered upgrade modules so schema evolution is explicit, reviewable, and easier to extend without growing a single registry file.
