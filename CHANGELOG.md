@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.21
+
+- Fixed the demo Apply tab and tray integration so GUI apply completion now lands on a deterministic finished signal instead of racing on a 100% progress update, keeping the offscreen smoke gate stable.
+- Expanded export/import bundles into a stronger support artifact by adding `VERIFY_REPORT.json`, recent run history, and run state snapshots alongside run plans.
+- Hardened `autoshelf import` to validate manifest counts, verify issue counts, and history payload consistency against bundle metadata before committing the imported audit tree.
+
 ## v1.0.20
 
 - Added a real system tray workflow for the desktop app, including quick actions to show or hide the main window, scan `~/Downloads`, and quit cleanly without losing operator context.
