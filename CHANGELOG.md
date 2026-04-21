@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.0.32
+
+- Harden Review-tab GUI tests by pinning `locale.getlocale` to English and invalidating the i18n catalog cache, so the suite is deterministic on systems with a Korean system locale.
+- Tests-only patch; no runtime behavior change.
+
 ## v1.0.31
 
 - Added deterministic near-duplicate text detection using local shingled Jaccard matching, so autoshelf can identify lightly edited versions of the same document without any new network dependency.
