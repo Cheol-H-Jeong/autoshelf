@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import errno
+import json
 from pathlib import Path
 
 import autoshelf.shortcuts as shortcuts_module
@@ -12,6 +13,7 @@ from autoshelf.apply_state import (
     write_run_plan,
     write_run_state,
 )
+from autoshelf.filesystem import FakeFilesystem
 from autoshelf.manifest import write_manifests
 from autoshelf.planner.models import PlannerAssignment
 from autoshelf.shortcuts import create_shortcut
@@ -270,6 +272,29 @@ def test_apply_skip_policy_leaves_existing_target(tmp_path):
     )
     assert result.moved == []
     assert source.exists()
+
+
+def test_apply_plan_supports_fake_filesystem_backend(tmp_path):
+    filesystem = FakeFilesystem()
+    filesystem.write_text(tmp_path / "draft.txt", "hello")
+
+    result = apply_plan(
+        tmp_path,
+        [_assignment("draft.txt", ["문서"])],
+        {"문서": {}},
+        dry_run=False,
+        filesystem=filesystem,
+    )
+
+    target = tmp_path / "문서" / "draft.txt"
+    assert result.moved == [(tmp_path / "draft.txt", target)]
+    assert filesystem.exists(target)
+    assert not filesystem.exists(tmp_path / "draft.txt")
+    manifest_line = (tmp_path / "manifest.jsonl").read_text(encoding="utf-8").strip()
+    manifest = json.loads(manifest_line)
+    assert manifest["content_hash"] == filesystem.hash_file(target)
+    state_payload = run_state_path(tmp_path, result.run_id).read_text(encoding="utf-8")
+    assert '"status": "completed"' in state_payload
 
 
 def test_manifest_write_is_idempotent(tmp_path):
