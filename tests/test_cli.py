@@ -27,6 +27,8 @@ def test_cli_help_lists_expected_subcommands():
         "undo",
         "history",
         "verify",
+        "export",
+        "import",
         "stats",
         "gui",
         "doctor",

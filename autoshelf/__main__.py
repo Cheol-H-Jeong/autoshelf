@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from autoshelf.__init__ import __version__
 from autoshelf.applier import apply_plan
+from autoshelf.bundle import export_bundle, import_bundle
 from autoshelf.config import AppConfig
 from autoshelf.db import ContextRecord, Database, FileRecord, default_db_path
 from autoshelf.doctor import doctor_exit_code, run_diagnostics
@@ -46,6 +47,40 @@ def main() -> None:
         report = verify_root(Path(args.root).expanduser().resolve())
         print(json.dumps(report.model_dump(mode="json"), ensure_ascii=False, indent=2))
         raise SystemExit(verify_exit_code(report))
+    if args.command == "export":
+        result = export_bundle(
+            Path(args.root).expanduser().resolve(),
+            Path(args.output).expanduser() if args.output else None,
+        )
+        print(
+            json.dumps(
+                {
+                    "archive_path": str(result.archive_path),
+                    "manifest_entries": result.metadata.manifest_entries,
+                    "run_plans": result.metadata.run_plans,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return
+    if args.command == "import":
+        result = import_bundle(
+            Path(args.archive).expanduser(),
+            Path(args.root).expanduser().resolve(),
+        )
+        print(
+            json.dumps(
+                {
+                    "archive_path": str(result.archive_path),
+                    "destination_dir": str(result.destination_dir),
+                    "source_root": result.metadata.source_root,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return
 
     root = Path(args.root).expanduser().resolve()
     if getattr(args, "exclude", None):
@@ -139,6 +174,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
     verify = subparsers.add_parser("verify")
     verify.add_argument("root")
+
+    export = subparsers.add_parser("export")
+    export.add_argument("root")
+    export.add_argument("--output", default=None)
+
+    bundle_import = subparsers.add_parser("import")
+    bundle_import.add_argument("archive")
+    bundle_import.add_argument("root")
 
     subparsers.add_parser("stats")
     subparsers.add_parser("gui")
