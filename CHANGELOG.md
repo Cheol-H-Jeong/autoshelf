@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.24
+
+- Hardened `autoshelf apply --resume` to fail closed when a source file is gone but the recorded target path contains mismatched content, preventing a corrupted recovery state from being silently rehashed into a fresh manifest.
+- Expanded `autoshelf verify` to detect orphaned run plans, state files that lost their matching plan, and completed runs that still leave staged recovery residue behind under `.autoshelf/`.
+- Documented the stronger recovery and verification workflow and added regression coverage for ambiguous resume states plus orphaned run metadata drift.
+
 ## v1.0.23
 
 - Added a per-file `bundle-manifest.json` audit inventory to Linux release tarballs and surfaced `bundle_file_count` in `build-metadata.json`, so customers can independently verify exactly what was shipped.
