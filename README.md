@@ -60,7 +60,9 @@ python -m autoshelf gui
 
 Offline planning is used automatically when `ANTHROPIC_API_KEY` is unset or `llm.provider = "fake"`.
 
-When Anthropic planning is enabled, autoshelf sends each file brief with its immediate parent folder name so uploads from meaningful staging folders like `receipts/`, `client-a/`, or `강의자료/` keep that signal during classification. The Anthropic prompt prefix also includes stable few-shot examples in a cacheable system block so repeated runs on the same machine spend fewer prompt tokens on shared planner instructions.
+When Anthropic planning is enabled, autoshelf sends each file brief with its immediate parent folder, relative parent path, and duplicate-group size so uploads from meaningful staging folders like `receipts/`, `client-a/`, or `강의자료/` keep that signal during classification. The Anthropic prompt prefix also includes stable few-shot examples in a cacheable system block so repeated runs on the same machine spend fewer prompt tokens on shared planner instructions.
+
+The offline FakeLLM path now uses the same ancestry signals instead of relying on extension-only buckets. That means local-first runs can keep customer folders like `clients/acme/`, recognize finance-heavy docs such as invoices and receipts, and split screenshot-heavy image imports into a dedicated bucket without calling the network.
 
 After an apply, run `python -m autoshelf verify /path/to/root` to confirm the on-disk tree still matches the manifest hash chain.
 If an apply is interrupted, rerun `python -m autoshelf apply /path/to/root --resume <run-id>` to finish the recorded run safely. `verify` now reports incomplete runs and leftover staged recovery artifacts under `.autoshelf/` so operators can audit the tree before trusting it.
