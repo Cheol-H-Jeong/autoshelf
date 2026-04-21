@@ -1,18 +1,22 @@
 from __future__ import annotations
 
 import fnmatch
+from collections.abc import Callable
 from pathlib import Path
+from typing import TypeVar
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 RULES_FILE_NAME = ".autoshelfrc.yaml"
+T = TypeVar("T")
 
 
 class MappingRule(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     glob: str
+    priority: int = 0
     target: list[str]
     also_relevant: list[list[str]] = Field(default_factory=list)
 
@@ -42,6 +46,7 @@ class PlanningRules(BaseModel):
 
     version: int = 1
     pinned_dirs: list[list[str]] = Field(default_factory=list)
+    exclude_globs: list[str] = Field(default_factory=list)
     mappings: list[MappingRule] = Field(default_factory=list)
 
     @field_validator("pinned_dirs", mode="before")
@@ -53,6 +58,11 @@ class PlanningRules(BaseModel):
             raise TypeError("pinned_dirs must be a list")
         return [_normalize_folder_path(item) for item in value]
 
+    @field_validator("exclude_globs", mode="before")
+    @classmethod
+    def _normalize_exclude_globs(cls, value: object) -> list[str]:
+        return _normalize_glob_list(value)
+
     @model_validator(mode="after")
     def _validate_version(self) -> PlanningRules:
         if self.version != 1:
@@ -61,7 +71,7 @@ class PlanningRules(BaseModel):
 
     @property
     def is_empty(self) -> bool:
-        return not self.pinned_dirs and not self.mappings
+        return not self.pinned_dirs and not self.exclude_globs and not self.mappings
 
 
 def rules_path(root: Path) -> Path:
@@ -83,12 +93,17 @@ def load_planning_rules(root: Path | None) -> PlanningRules:
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     rules = PlanningRules.model_validate(data)
     logger.bind(component="rules").info(
-        "loaded rules from {} pinned_dirs={} mappings={}",
+        "loaded rules from {} pinned_dirs={} exclude_globs={} mappings={}",
         path,
         len(rules.pinned_dirs),
+        len(rules.exclude_globs),
         len(rules.mappings),
     )
     return rules
+
+
+def merge_exclude_patterns(patterns: list[str], rules: PlanningRules) -> list[str]:
+    return list(dict.fromkeys([*patterns, *rules.exclude_globs]))
 
 
 def merge_rule_paths(tree: dict[str, object], rules: PlanningRules) -> dict[str, object]:
@@ -107,7 +122,9 @@ def apply_assignment_rules(assignments: list, rules: PlanningRules) -> list:
         return assignments
     adjusted = []
     for assignment in assignments:
-        matched = next((rule for rule in rules.mappings if rule.matches(assignment.path)), None)
+        if is_path_excluded(assignment.path, rules.exclude_globs):
+            continue
+        matched = match_mapping_rule(assignment.path, rules)
         if matched is None:
             adjusted.append(assignment)
             continue
@@ -123,14 +140,49 @@ def apply_assignment_rules(assignments: list, rules: PlanningRules) -> list:
     return adjusted
 
 
+def filter_paths_by_rules(
+    paths: list[T],
+    rules: PlanningRules,
+    path_getter: Callable[[T], str],
+) -> list[T]:
+    if not rules.exclude_globs:
+        return paths
+    return [item for item in paths if not is_path_excluded(path_getter(item), rules.exclude_globs)]
+
+
+def match_mapping_rule(relative_path: str, rules: PlanningRules) -> MappingRule | None:
+    matches = [rule for rule in rules.mappings if rule.matches(relative_path)]
+    if not matches:
+        return None
+    matches.sort(key=lambda rule: rule.priority, reverse=True)
+    return matches[0]
+
+
+def is_path_excluded(relative_path: str, patterns: list[str]) -> bool:
+    if not patterns:
+        return False
+    normalized = relative_path.replace("\\", "/").lstrip("./")
+    basename = Path(normalized).name
+    parts = Path(normalized).parts
+    for pattern in patterns:
+        if fnmatch.fnmatch(normalized, pattern) or fnmatch.fnmatch(basename, pattern):
+            return True
+        if any(fnmatch.fnmatch(part, pattern) for part in parts):
+            return True
+    return False
+
+
 def render_rules_prompt(rules: PlanningRules) -> str:
     if rules.is_empty:
         return ""
     lines = ["Rules file constraints:"]
     for parts in rules.pinned_dirs:
         lines.append(f"- keep folder available: {_display_path(parts)}")
+    for pattern in rules.exclude_globs:
+        lines.append(f"- ignore paths matching {pattern}")
     for rule in rules.mappings:
-        lines.append(f"- glob {rule.glob} must map to {_display_path(rule.target)}")
+        priority = f" [priority {rule.priority}]" if rule.priority else ""
+        lines.append(f"- glob {rule.glob}{priority} must map to {_display_path(rule.target)}")
         for extra in rule.also_relevant:
             lines.append(f"- glob {rule.glob} may also appear in {_display_path(extra)}")
     return "\n".join(lines)
@@ -150,6 +202,17 @@ def _normalize_folder_path(value: object) -> list[str]:
     if not parts:
         raise ValueError("folder paths cannot be empty")
     return parts
+
+
+def _normalize_glob_list(value: object) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise TypeError("exclude_globs must be a list")
+    globs = [str(item).strip() for item in value if str(item).strip()]
+    if not globs:
+        return []
+    return globs
 
 
 def _rule_summary(summary: str, glob: str) -> str:

@@ -21,13 +21,19 @@ def run_diagnostics(root: Path | None = None) -> dict[str, object]:
     target_root = root or Path.cwd()
     rules_file = rules_path(target_root)
     rules_status = "missing"
+    rules_summary = {"pinned_dirs": 0, "exclude_globs": 0, "mappings": 0}
     if rules_file.exists():
         try:
-            load_planning_rules(target_root)
+            rules = load_planning_rules(target_root)
         except Exception:
             rules_status = "invalid"
         else:
             rules_status = "ok"
+            rules_summary = {
+                "pinned_dirs": len(rules.pinned_dirs),
+                "exclude_globs": len(rules.exclude_globs),
+                "mappings": len(rules.mappings),
+            }
     checks = {
         "python_ok": sys.version_info >= (3, 11),
         "api_key_configured": bool(os.environ.get("ANTHROPIC_API_KEY")),
@@ -38,7 +44,7 @@ def run_diagnostics(root: Path | None = None) -> dict[str, object]:
         "ffprobe_available": shutil.which("ffprobe") is not None,
         "rules_file_status": rules_status,
     }
-    return {"checks": checks, "dependencies": deps}
+    return {"checks": checks, "dependencies": deps, "rules": rules_summary}
 
 
 def doctor_exit_code(report: dict[str, object]) -> int:

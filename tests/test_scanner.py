@@ -42,3 +42,13 @@ def test_scan_permission_error_is_nonfatal(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "stat", fake_stat)
     files = scan_directory(tmp_path, AppConfig(include_dotfiles=True))
     assert files == []
+
+
+def test_scan_respects_nested_glob_exclusions(tmp_path):
+    (tmp_path / "Inbox").mkdir()
+    (tmp_path / "Inbox" / "draft.txt").write_text("x", encoding="utf-8")
+    (tmp_path / "keep.txt").write_text("y", encoding="utf-8")
+
+    files = scan_directory(tmp_path, AppConfig(exclude=["Inbox/**"]))
+
+    assert {item.filename for item in files} == {"keep.txt"}

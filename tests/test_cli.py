@@ -112,6 +112,33 @@ mappings:
     assert "Invoices" in completed.stdout
 
 
+def test_cli_plan_skips_paths_excluded_by_rules_file(tmp_path):
+    (tmp_path / ".autoshelfrc.yaml").write_text(
+        """
+version: 1
+exclude_globs:
+  - Inbox/**
+""".strip(),
+        encoding="utf-8",
+    )
+    (tmp_path / "Inbox").mkdir()
+    (tmp_path / "Inbox" / "draft.txt").write_text("ignore me", encoding="utf-8")
+    (tmp_path / "keep.txt").write_text("keep me", encoding="utf-8")
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "autoshelf", "plan", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[1],
+        check=True,
+    )
+
+    assert completed.returncode == 0
+    draft = json.loads((tmp_path / ".autoshelf" / "plan_draft.json").read_text(encoding="utf-8"))
+
+    assert [entry["path"] for entry in draft["assignments"]] == ["keep.txt"]
+
+
 def test_cli_plan_progress_json_streams_events_and_result(tmp_path):
     (tmp_path / "draft.txt").write_text("hello", encoding="utf-8")
 

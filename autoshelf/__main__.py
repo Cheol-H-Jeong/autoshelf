@@ -19,6 +19,7 @@ from autoshelf.planner.draft import load_draft
 from autoshelf.planner.pipeline import PlannerPipeline
 from autoshelf.preview import build_preview
 from autoshelf.progress import ProgressReporter
+from autoshelf.rules import filter_paths_by_rules, load_planning_rules, merge_exclude_patterns
 from autoshelf.scanner import scan_directory
 from autoshelf.stats import collect_stats, record_event
 from autoshelf.undo import undo_last_apply
@@ -84,8 +85,10 @@ def main() -> None:
         return
 
     root = Path(args.root).expanduser().resolve()
+    rules = load_planning_rules(root)
     if getattr(args, "exclude", None):
         config.exclude = list(dict.fromkeys([*config.exclude, *args.exclude]))
+    config.exclude = merge_exclude_patterns(config.exclude, rules)
     if getattr(args, "chunk_tokens", None):
         config.max_chunk_tokens = args.chunk_tokens
     if getattr(args, "model", None):
@@ -119,7 +122,7 @@ def main() -> None:
         draft = load_draft(root) if not args.refresh else None
         reused_draft = draft is not None and bool(draft.assignments)
         if reused_draft:
-            assignments = draft.assignments
+            assignments = filter_paths_by_rules(draft.assignments, rules, lambda item: item.path)
             reporter.emit("preview.plan.reused", current=len(assignments), total=len(assignments))
         else:
             plan_result = _plan(root, config, resume=args.resume, reporter=reporter)
@@ -145,7 +148,7 @@ def main() -> None:
         try:
             outcome = apply_plan(
                 root,
-                result.assignments,
+                filter_paths_by_rules(result.assignments, rules, lambda item: item.path),
                 result.tree,
                 dry_run=args.dry_run,
                 db_path=default_db_path(root),

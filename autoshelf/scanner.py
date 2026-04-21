@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import fnmatch
 import hashlib
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -9,6 +8,7 @@ from pathlib import Path
 from loguru import logger
 
 from autoshelf.config import AppConfig
+from autoshelf.rules import is_path_excluded
 
 
 @dataclass(slots=True)
@@ -71,11 +71,7 @@ def _is_excluded(root: Path, path: Path, patterns: Iterable[str], include_dotfil
     parts = rel.parts
     if not include_dotfiles and any(part.startswith(".") for part in parts):
         return True
-    for part in parts:
-        for pattern in patterns:
-            if fnmatch.fnmatch(part, pattern):
-                return True
-    return False
+    return is_path_excluded(str(rel), list(patterns))
 
 
 def _hash_file(path: Path) -> str:
