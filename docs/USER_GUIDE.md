@@ -25,6 +25,20 @@ Rules-only install for headless servers:
 pip install -e .[rules]
 ```
 
+## Examples
+
+Generate the bundled demo fixture when you want to evaluate autoshelf without exposing real customer files:
+
+```bash
+python examples/fixtures/generate_demo.py /tmp/autoshelf-demo
+python -m autoshelf doctor /tmp/autoshelf-demo
+python -m autoshelf plan /tmp/autoshelf-demo
+python -m autoshelf preview /tmp/autoshelf-demo
+python -m autoshelf verify /tmp/autoshelf-demo
+```
+
+The generator creates mixed business documents, screenshots, duplicate-content files, and a sample `.autoshelfrc.yaml`. It also writes `fixture-manifest.json` so QA or support can confirm the expected corpus shape before comparing planner output between builds.
+
 ## Recommended Operator Flow
 
 Health check:
@@ -204,6 +218,16 @@ python -m autoshelf --progress json apply /srv/incoming
 ```
 
 Each run emits JSONL progress records and ends with a single `result` object on stdout.
+
+## Man Page
+
+Regenerate the Linux man page from the live CLI surface before packaging or release:
+
+```bash
+python packaging/generate_manpage.py
+```
+
+This writes `packaging/linux/autoshelf.1`, which is also copied into Linux bundle artifacts under `docs/autoshelf.1`.
 
 ## Config Upgrades
 

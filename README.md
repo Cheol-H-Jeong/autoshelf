@@ -12,6 +12,7 @@
 - Korean and English UI catalogs.
 
 Operator documentation lives in [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md).
+Demo data for local evaluation lives in [`examples/`](examples/README.md).
 
 ## Install
 
@@ -33,6 +34,7 @@ autoshelf version
 To install a built wheel into an isolated `pipx` environment:
 
 ```bash
+python packaging/generate_manpage.py
 python packaging/build.py --verify-wheel
 pipx install dist/autoshelf-*.whl
 autoshelf version
@@ -67,6 +69,15 @@ python -m autoshelf gui
 ```
 
 Offline planning is used automatically when `ANTHROPIC_API_KEY` is unset or `llm.provider = "fake"`.
+
+To generate a realistic evaluation inbox without customer data:
+
+```bash
+python examples/fixtures/generate_demo.py /tmp/autoshelf-demo
+python -m autoshelf doctor /tmp/autoshelf-demo
+python -m autoshelf plan /tmp/autoshelf-demo
+python -m autoshelf preview /tmp/autoshelf-demo
+```
 
 When Anthropic planning is enabled, autoshelf sends each file brief with its immediate parent folder, relative parent path, and duplicate-group size so uploads from meaningful staging folders like `receipts/`, `client-a/`, or `강의자료/` keep that signal during classification. The Anthropic prompt prefix also includes stable few-shot examples in a cacheable system block so repeated runs on the same machine spend fewer prompt tokens on shared planner instructions. After the initial assignment pass, autoshelf now runs a full-plan review step that can collapse weak workflow folders like `proposals/` back into stronger business parents such as a repeated client folder, and it rewrites the per-file summary into a folder rationale that shows up in the GUI and manifest.
 
@@ -156,9 +167,11 @@ Review quarantine workflow:
 
 ## Packaging
 
+- `python packaging/generate_manpage.py` regenerates `packaging/linux/autoshelf.1` from the live argparse surface so CLI docs and release artifacts stay in sync.
 - `python packaging/build.py --verify-install --verify-wheel` creates a Linux release tarball under `dist/` with a vendored runtime, launcher, installer script, desktop entry, bundled docs, and a smoke-tested wheel runtime.
 - The Linux bundle installs without downloading Python packages on the target machine; it reuses the runtime wheels already present on the release builder and requires the same Python minor version recorded in `build-metadata.json`.
 - Every tarball now includes `bundle-manifest.json`, a per-file SHA-256 inventory for the shipped Linux bundle itself, plus `build-metadata.json` fields for `bundle_file_count`, `install_verified`, and `wheel_verified`.
+- The Linux bundle also carries `docs/autoshelf.1`, making the generated command reference available alongside the shipped README and LICENSE.
 - After extraction, run `./install.sh` to install the release under `~/.local/share/autoshelf/releases/<version>/` and expose `~/.local/bin/autoshelf`.
 - `pipx install --editable '.[all]'` remains the fastest developer path when you want an isolated checkout with optional extras instead of a release tarball.
 - `pipx install dist/autoshelf-*.whl` is the closest production-like CLI install path once you have built and verified a wheel locally.
