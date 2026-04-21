@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.26
+
+- Added a generated `packaging/linux/autoshelf.1` man page sourced from the live argparse surface, and now ship it inside Linux bundle artifacts so CLI docs do not drift from the product.
+- Added a runnable `examples/fixtures/generate_demo.py` workflow that creates a deterministic evaluation inbox plus sample `.autoshelfrc.yaml`, giving sales, QA, and support a safe corpus for repeatable demos.
+- Expanded the README and user guide around the demo-fixture loop and man-page workflow, with regression coverage that keeps those operator-facing assets present and current.
+
 ## v1.0.25
 
 - Added a quarantine review workflow to the desktop Review tab so low-confidence assignments are called out explicitly instead of being buried under `.autoshelf/quarantine`.
