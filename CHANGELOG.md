@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.9
+
+- Added interrupt-aware apply state files under `.autoshelf/runs/` so live organization runs record current progress, survive resumptions cleanly, and exit with a distinct interrupted status when SIGINT or SIGTERM lands mid-run.
+- Routed cross-device file moves through a hidden staging area before the final atomic replace, preventing half-copied visible targets and allowing recovery from leftover staged artifacts after abrupt termination.
+- Extended `autoshelf verify <root>` and the README workflow so operators can detect incomplete runs, unfinished plan entries, and staged recovery files before trusting an organized tree.
+
 ## v1.0.8
 
 - Added schema-backed Anthropic reliability controls in `config.toml`, including retry delay bounds, jitter, and circuit-breaker thresholds, with config migration coverage for existing installs.
