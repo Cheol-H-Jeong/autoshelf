@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.20
+
+- Added a real system tray workflow for the desktop app, including quick actions to show or hide the main window, scan `~/Downloads`, and quit cleanly without losing operator context.
+- Surfaced last-run scan, apply, and undo status directly in the tray tooltip and notifications so desktop users can trust what autoshelf most recently did without reopening the full window.
+- Hardened the GUI regression suite around tray actions and teardown so offscreen smoke coverage still passes cleanly in the full release gate.
+
 ## v1.0.19
 
 - Upgraded the Review tab into a clearer diff surface with action labels, per-file before/after summaries, localized counts, and stronger confidence/rationale overlays so operators can trust proposed moves faster.
