@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.11
+
+- Extended `.autoshelfrc.yaml` with `exclude_globs` and mapping `priority`, turning the rules file into a stronger per-root control surface for deterministic organization.
+- Enforced rule-based exclusions across scan, plan, preview, and apply flows so ignored intake paths stay out of drafts and live runs even when a saved plan is reused.
+- Added rule-count diagnostics in `autoshelf doctor`, documented production operator workflows in `docs/USER_GUIDE.md`, and expanded regression coverage for exclusion matching and mapping precedence.
+
 ## v1.0.10
 
 - Added a safe `autoshelf preview <root>` command that materializes `.autoshelf/preview/` as a browsable symlink tree, letting operators inspect the proposed layout before moving live files.
