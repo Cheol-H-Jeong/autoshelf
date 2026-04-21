@@ -49,7 +49,14 @@ def test_build_script_can_verify_installed_bundle(tmp_path):
     _write_sample_project(tmp_path)
 
     completed = subprocess.run(
-        [sys.executable, "packaging/build.py", "--root", str(tmp_path), "--verify-install"],
+        [
+            sys.executable,
+            "packaging/build.py",
+            "--root",
+            str(tmp_path),
+            "--verify-install",
+            "--verify-wheel",
+        ],
         capture_output=True,
         text=True,
         cwd=Path(__file__).resolve().parents[1],
@@ -64,6 +71,7 @@ def test_build_script_can_verify_installed_bundle(tmp_path):
         assert metadata_member is not None
         metadata_text = metadata_member.read().decode("utf-8")
     assert '"install_verified": true' in metadata_text
+    assert '"wheel_verified": true' in metadata_text
 
 
 def test_bump_version_script_updates_version_files(tmp_path):

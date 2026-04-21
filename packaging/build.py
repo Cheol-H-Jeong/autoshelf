@@ -42,6 +42,7 @@ class BundleMetadata(BaseModel):
     bundle_file_count: int = 0
     runtime_distributions: tuple[str, ...] = Field(default_factory=tuple)
     install_verified: bool = False
+    wheel_verified: bool = False
 
 
 class BundleFileRecord(BaseModel):
@@ -65,6 +66,7 @@ def build(
     root: Path | None = None,
     output_dir: Path | None = None,
     verify_install: bool = False,
+    verify_wheel: bool = False,
 ) -> BuildResult:
     project_root = (root or Path(__file__).resolve().parents[1]).resolve()
     metadata = _load_project_metadata(project_root)
@@ -85,7 +87,10 @@ def build(
         metadata_path = _stage_bundle(project_root, bundle_root, metadata, wheel_path)
         if verify_install:
             _verify_install(bundle_root, metadata)
-            metadata_path = _update_install_verification(metadata_path, install_verified=True)
+            metadata_path = _update_verification_metadata(metadata_path, install_verified=True)
+        if verify_wheel:
+            _verify_wheel(wheel_path, metadata)
+            metadata_path = _update_verification_metadata(metadata_path, wheel_verified=True)
         _write_tarball(bundle_root, artifact_path)
         sha256_path = artifact_path.with_suffix(artifact_path.suffix + ".sha256")
         sha256_path.write_text(_sha256(artifact_path), encoding="utf-8")
@@ -415,11 +420,63 @@ def _verify_install(bundle_root: Path, metadata: ProjectMetadata) -> None:
             logger.debug(install_completed.stdout.strip())
 
 
-def _update_install_verification(metadata_path: Path, install_verified: bool) -> Path:
+def _verify_wheel(wheel_path: Path, metadata: ProjectMetadata) -> None:
+    with tempfile.TemporaryDirectory(prefix="autoshelf-wheel-verify-") as temp_dir:
+        runtime_dir = Path(temp_dir) / "site-packages"
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        _install_wheel_into_runtime(runtime_dir, wheel_path)
+        runtime_distributions = _resolve_runtime_distributions(metadata.runtime_dependencies)
+        for distribution_name in runtime_distributions:
+            _copy_distribution(distribution_name, runtime_dir)
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                textwrap.dedent(
+                    """\
+                    from __future__ import annotations
+
+                    import runpy
+                    import sys
+                    from pathlib import Path
+
+                    runtime_dir = Path(sys.argv[1]).resolve()
+                    sys.path[:] = [str(runtime_dir), *[entry for entry in sys.path if entry]]
+                    sys.argv = ["autoshelf", "version"]
+                    runpy.run_module("autoshelf", run_name="__main__", alter_sys=True)
+                    """
+                ),
+                str(runtime_dir),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(
+                "Wheel verification failed while running autoshelf version:\n"
+                f"stdout:\n{completed.stdout}\n"
+                f"stderr:\n{completed.stderr}"
+            )
+        if completed.stdout.strip() != metadata.version:
+            raise RuntimeError(
+                "Wheel verification reported the wrong version: "
+                f"{completed.stdout.strip()} != {metadata.version}"
+            )
+
+
+def _update_verification_metadata(
+    metadata_path: Path,
+    install_verified: bool | None = None,
+    wheel_verified: bool | None = None,
+) -> Path:
     metadata = BundleMetadata.model_validate_json(metadata_path.read_text(encoding="utf-8"))
+    updates: dict[str, bool] = {}
+    if install_verified is not None:
+        updates["install_verified"] = install_verified
+    if wheel_verified is not None:
+        updates["wheel_verified"] = wheel_verified
     metadata_path.write_text(
-        metadata.model_copy(update={"install_verified": install_verified}).model_dump_json(indent=2)
-        + "\n",
+        metadata.model_copy(update=updates).model_dump_json(indent=2) + "\n",
         encoding="utf-8",
     )
     return metadata_path
@@ -521,6 +578,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--root", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--verify-install", action="store_true", default=False)
+    parser.add_argument("--verify-wheel", action="store_true", default=False)
     return parser
 
 
@@ -528,7 +586,12 @@ def main() -> None:
     logger.remove()
     logger.add(sys.stderr, level="INFO")
     args = _build_parser().parse_args()
-    result = build(root=args.root, output_dir=args.output_dir, verify_install=args.verify_install)
+    result = build(
+        root=args.root,
+        output_dir=args.output_dir,
+        verify_install=args.verify_install,
+        verify_wheel=args.verify_wheel,
+    )
     print(result.artifact)
 
 
