@@ -24,9 +24,35 @@ def test_build_script_creates_linux_bundle(tmp_path):
     assert sha_path.exists()
     with tarfile.open(artifact, "r:gz") as archive:
         names = archive.getnames()
-    assert "autoshelf-1.0.2-linux-x86_64-bundle/install.sh" in names
+    assert "autoshelf-1.0.2-linux-x86_64-bundle/bin/autoshelf" in names
     assert "autoshelf-1.0.2-linux-x86_64-bundle/build-metadata.json" in names
+    assert "autoshelf-1.0.2-linux-x86_64-bundle/install.sh" in names
+    assert (
+        "autoshelf-1.0.2-linux-x86_64-bundle/runtime/site-packages/autoshelf/__init__.py"
+        in names
+    )
     assert any(name.endswith(".whl") for name in names)
+
+
+def test_build_script_can_verify_installed_bundle(tmp_path):
+    _write_sample_project(tmp_path)
+
+    completed = subprocess.run(
+        [sys.executable, "packaging/build.py", "--root", str(tmp_path), "--verify-install"],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[1],
+        check=True,
+    )
+
+    artifact = Path(completed.stdout.strip())
+    with tarfile.open(artifact, "r:gz") as archive:
+        metadata_member = archive.extractfile(
+            "autoshelf-1.0.2-linux-x86_64-bundle/build-metadata.json"
+        )
+        assert metadata_member is not None
+        metadata_text = metadata_member.read().decode("utf-8")
+    assert '"install_verified": true' in metadata_text
 
 
 def test_bump_version_script_updates_version_files(tmp_path):
@@ -59,7 +85,9 @@ def _write_sample_project(root: Path) -> None:
         "from __future__ import annotations\n\n"
         "from autoshelf import __version__\n\n"
         "def main() -> None:\n"
-        "    print(__version__)\n",
+        "    print(__version__)\n\n"
+        "if __name__ == \"__main__\":\n"
+        "    main()\n",
         encoding="utf-8",
     )
     (root / "packaging" / "linux" / "autoshelf.desktop").write_text(
