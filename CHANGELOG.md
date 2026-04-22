@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.1.0
+
+- Redesigned the desktop GUI around shared design tokens, bundled Lucide icons, higher-contrast themed widgets, and refreshed Home, Options, Progress, Review, History, and Settings screens with stronger keyboard and accessibility coverage.
+- Added Windows release packaging for the desktop app with a PyInstaller one-dir build, Inno Setup installer, local dry-run validation on Linux, release workflow automation, and installer metadata tests.
+- Documented the new visual system and release flow in `docs/DESIGN.md` and `docs/RELEASE.md`, and added fresh UI screenshots for the redesigned screens.
+
 ## v2.0.0
 
 - Replaced all cloud planner assumptions with an on-device-first runtime: embedded `llama-cpp-python`, bundled-on-first-run Qwen3 GGUF tiers, loopback-only local HTTP fallback, and a stricter privacy posture that blocks remote LLM hosts by default.
