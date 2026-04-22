@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autoshelf"
-version = "1.0.33"
-description = "Offline-first folder organizer with optional Anthropic planning and PySide6 GUI"
+version = "2.0.0"
+description = "100% on-device folder organizer with embedded local LLM planning and PySide6 GUI"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
@@ -35,7 +35,11 @@ parsers = [
   "pylnk3>=0.4,<1",
   "Pillow>=10,<12",
 ]
-llm = ["anthropic>=0.51,<1"]
+runtime = [
+  "llama-cpp-python>=0.3,<1",
+  "psutil>=6,<7",
+  "huggingface_hub>=0.34,<1",
+]
 rules = ["PyYAML>=6,<7"]
 dev = [
   "pytest>=8,<9",
@@ -58,7 +62,9 @@ all = [
   "mutagen>=1.47,<2",
   "pylnk3>=0.4,<1",
   "Pillow>=10,<12",
-  "anthropic>=0.51,<1",
+  "llama-cpp-python>=0.3,<1",
+  "psutil>=6,<7",
+  "huggingface_hub>=0.34,<1",
   "PyYAML>=6,<7",
   "pytest>=8,<9",
   "ruff>=0.11,<1",
@@ -77,10 +83,6 @@ image = "autoshelf.parsers.image:PARSER_SPEC"
 media = "autoshelf.parsers.media:PARSER_SPEC"
 pdf = "autoshelf.parsers.pdf:PARSER_SPEC"
 text = "autoshelf.parsers.text:PARSER_SPEC"
-
-[project.entry-points."autoshelf.llm_providers"]
-anthropic = "autoshelf.planner.providers:anthropic_provider"
-fake = "autoshelf.planner.providers:fake_provider"
 
 [project.entry-points."autoshelf.naming_rules"]
 default = "autoshelf.planner.validation:builtin_naming_rule"

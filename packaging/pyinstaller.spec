@@ -3,7 +3,7 @@
 from PyInstaller.utils.hooks import collect_submodules
 
 hiddenimports = (
-    collect_submodules("anthropic")
+    collect_submodules("llama_cpp")
     + collect_submodules("PySide6.QtCore")
     + collect_submodules("PySide6.QtGui")
     + collect_submodules("PySide6.QtWidgets")
