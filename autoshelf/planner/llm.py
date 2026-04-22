@@ -1,20 +1,24 @@
 from __future__ import annotations
 
+import json
 import os
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Protocol
 
 from loguru import logger
 
 from autoshelf.config import AppConfig
+from autoshelf.llm.embedded import EmbeddedLlamaRuntime
+from autoshelf.llm.model_registry import get_variant
+from autoshelf.llm.openai_local import chat_completion, ollama_is_up, probe_openai_compatible
 from autoshelf.planner.chunking import FileBrief
 from autoshelf.planner.contextual import contextual_primary_dir
 from autoshelf.planner.models import PlannerAssignment, PlannerResponse, PlannerUsage
 from autoshelf.planner.naming import normalize_folder_name
 from autoshelf.planner.prompts import build_system_prompt_blocks
-from autoshelf.planner.rate_limit import RateLimiter
 from autoshelf.planner.reliability import CircuitBreaker, RetryPolicy
 from autoshelf.planner.review import (
     build_assignment_rationale,
@@ -25,8 +29,6 @@ from autoshelf.rules import PlanningRules, render_rules_prompt
 
 
 class PlannerLLM(Protocol):
-    """Planner LLM interface."""
-
     def propose(self, draft_tree: dict[str, Any], briefs: list[FileBrief]) -> PlannerResponse: ...
 
     def finalize(self, draft_tree: dict[str, Any], briefs: list[FileBrief]) -> dict[str, Any]: ...
@@ -51,8 +53,6 @@ class PlannerLLM(Protocol):
 
 
 class FakeLLM:
-    """Offline deterministic planner implementation."""
-
     CATEGORY_MAP = {
         "pdf": "문서",
         "doc": "문서",
@@ -121,9 +121,9 @@ class FakeLLM:
             year = datetime.fromtimestamp(brief.mtime).strftime("%Y")
             sibling_years[tuple(base_primary)].add(year)
         for brief, base_primary in zip(briefs, base_primaries, strict=False):
-            year = datetime.fromtimestamp(brief.mtime).strftime("%Y")
             top_level = base_primary[0]
             primary = list(base_primary)
+            year = datetime.fromtimestamp(brief.mtime).strftime("%Y")
             if len(primary) < 3 and len(sibling_years[tuple(base_primary)]) > 1:
                 primary.append(year)
             also: list[list[str]] = []
@@ -231,18 +231,12 @@ class FakeLLM:
         )
 
 
-class AnthropicPlannerLLM:
-    """Anthropic-backed planner with offline fallback expectations handled by the caller."""
-
+class StructuredPlannerLLM:
     def __init__(self, config: AppConfig, rules: PlanningRules | None = None) -> None:
         self._config = config
-        from anthropic import Anthropic  # type: ignore[import-not-found]
-
-        self._client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-        self._rate_limiter = RateLimiter(
-            requests_per_second=config.llm.requests_per_second,
-            concurrency=config.llm.concurrency,
-        )
+        self._rules = rules or PlanningRules()
+        self._fallback = FakeLLM()
+        self._usage = PlannerUsage()
         self._retry_policy = RetryPolicy(
             max_retries=config.llm.max_retries,
             base_delay_seconds=config.llm.retry_base_delay_ms / 1000,
@@ -253,9 +247,6 @@ class AnthropicPlannerLLM:
             failure_threshold=config.llm.circuit_breaker_threshold,
             cooldown_seconds=float(config.llm.circuit_breaker_cooldown_seconds),
         )
-        self._fallback = FakeLLM()
-        self._usage = PlannerUsage()
-        self._rules = rules or PlanningRules()
         self._tool_schema = {
             "type": "object",
             "properties": {
@@ -289,35 +280,25 @@ class AnthropicPlannerLLM:
         }
 
     def propose(self, draft_tree: dict[str, Any], briefs: list[FileBrief]) -> PlannerResponse:
-        prompt = "Propose or refine the folder tree and tentative assignments for this chunk."
-
-        def fallback() -> PlannerResponse:
-            return self._fallback.propose(draft_tree, briefs)
-
         return self._request(
-            model=self._config.llm.planning_model,
             draft_tree=draft_tree,
             briefs=briefs,
-            prompt=prompt,
-            fallback=fallback,
+            prompt="Propose or refine the folder tree and tentative assignments for this chunk.",
+            fallback=lambda: self._fallback.propose(draft_tree, briefs),
         )
 
     def finalize(self, draft_tree: dict[str, Any], briefs: list[FileBrief]) -> dict[str, Any]:
-        prompt = "Finalize the folder tree. Improve naming, merge duplicates, and keep depth <= 3."
-
-        def fallback() -> PlannerResponse:
-            return PlannerResponse(
+        response = self._request(
+            draft_tree=draft_tree,
+            briefs=briefs,
+            prompt=(
+                "Finalize the folder tree. Improve naming, merge duplicates, and keep depth <= 3."
+            ),
+            fallback=lambda: PlannerResponse(
                 tree=self._fallback.finalize(draft_tree, briefs),
                 assignments=[],
                 unsure_paths=[],
-            )
-
-        response = self._request(
-            model=self._config.llm.review_model,
-            draft_tree=draft_tree,
-            briefs=briefs,
-            prompt=prompt,
-            fallback=fallback,
+            ),
         )
         return response.tree
 
@@ -326,21 +307,18 @@ class AnthropicPlannerLLM:
         final_tree: dict[str, Any],
         briefs: list[FileBrief],
     ) -> list[PlannerAssignment]:
-        prompt = "Assign every file to the final folder tree. Return primary_dir and also_relevant."
-
-        def fallback() -> PlannerResponse:
-            return PlannerResponse(
+        response = self._request(
+            draft_tree=final_tree,
+            briefs=briefs,
+            prompt=(
+                "Assign every file to the final folder tree. Return primary_dir and "
+                "also_relevant."
+            ),
+            fallback=lambda: PlannerResponse(
                 tree=final_tree,
                 assignments=self._fallback.assign(final_tree, briefs),
                 unsure_paths=[],
-            )
-
-        response = self._request(
-            model=self._config.llm.classification_model,
-            draft_tree=final_tree,
-            briefs=briefs,
-            prompt=prompt,
-            fallback=fallback,
+            ),
         )
         return response.assignments
 
@@ -350,21 +328,16 @@ class AnthropicPlannerLLM:
         briefs: list[FileBrief],
         assignments: list[PlannerAssignment],
     ) -> PlannerResponse:
-        prompt = (
-            "Review the full tree and current assignments. Merge or split weak folders when the "
-            "full corpus supports it, and rewrite every summary as concise folder rationale."
-        )
-
-        def fallback() -> PlannerResponse:
-            return self._fallback.review(final_tree, briefs, assignments)
-
         return self._request(
-            model=self._config.llm.review_model,
             draft_tree=final_tree,
             briefs=briefs,
-            prompt=prompt,
-            fallback=fallback,
+            prompt=(
+                "Review the full tree and current assignments. Merge or split weak folders "
+                "when the "
+                "full corpus supports it, and rewrite every summary as concise folder rationale."
+            ),
             assignments=assignments,
+            fallback=lambda: self._fallback.review(final_tree, briefs, assignments),
         )
 
     @property
@@ -374,21 +347,81 @@ class AnthropicPlannerLLM:
     def count_tokens(self, briefs: list[FileBrief]) -> int:
         from autoshelf.planner.chunking import count_tokens
 
-        return count_tokens(briefs, counter=self._client)
+        return count_tokens(briefs)
+
+    def _request(
+        self,
+        *,
+        draft_tree: dict[str, Any],
+        briefs: list[FileBrief],
+        prompt: str,
+        fallback,
+        assignments: list[PlannerAssignment] | None = None,
+    ) -> PlannerResponse:
+        if not self._circuit_breaker.allow_request():
+            return self._fallback_response(fallback())
+        messages = self._messages_payload(prompt, briefs, draft_tree, assignments)
+        response_format = {"type": "json_object"}
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "emit_plan",
+                    "description": "Emit the current autoshelf plan as structured JSON.",
+                    "parameters": self._tool_schema,
+                },
+            }
+        ]
+        for attempt in range(self._retry_policy.max_retries + 1):
+            try:
+                started = perf_counter()
+                response = self._create_completion(
+                    messages=messages,
+                    tools=tools,
+                    tool_choice={"type": "function", "function": {"name": "emit_plan"}},
+                    response_format=response_format,
+                )
+                elapsed = int((perf_counter() - started) * 1000)
+                parsed = self._parse_response(response)
+                usage = response.get("usage", {})
+                self._usage.add_usage(
+                    input_tokens=int(usage.get("prompt_tokens", 0) or 0),
+                    output_tokens=int(usage.get("completion_tokens", 0) or 0),
+                )
+                logger.bind(component="planner").info(
+                    "llm call provider={} model={} probe_ms={}",
+                    type(self).__name__,
+                    self._config.llm.model_id,
+                    elapsed,
+                )
+                self._circuit_breaker.record_success()
+                return parsed
+            except Exception as exc:
+                if attempt >= self._retry_policy.max_retries:
+                    break
+                delay = self._retry_policy.sleep_for_attempt(attempt)
+                logger.bind(component="planner").warning(
+                    "retryable llm error on attempt {} after {:.2f}s delay: {}",
+                    attempt + 1,
+                    delay,
+                    exc,
+                )
+        self._circuit_breaker.record_failure()
+        return self._fallback_response(fallback())
 
     def _messages_payload(
         self,
+        prompt: str,
         briefs: list[FileBrief],
         tree: dict[str, Any],
-        model: str,
         assignments: list[PlannerAssignment] | None = None,
-    ) -> dict[str, Any]:
+    ) -> list[dict[str, str]]:
         guide_text = self._existing_folder_guide()
         rules_text = render_rules_prompt(self._rules)
         system_blocks = build_system_prompt_blocks(
             guide_text=guide_text,
             rules_text=rules_text,
-            prompt_cache_enabled=self._config.llm.prompt_cache_enabled,
+            prompt_cache_enabled=False,
         )
         brief_payload = [brief.prompt_text for brief in briefs]
         assignment_payload = (
@@ -396,116 +429,31 @@ class AnthropicPlannerLLM:
             if assignments is not None
             else None
         )
-        request_text = f"tree={tree}\nbriefs={brief_payload}"
+        request_text = f"{prompt}\n\ntree={tree}\nbriefs={brief_payload}"
         if assignment_payload is not None:
             request_text += f"\ncurrent_assignments={assignment_payload}"
-        return {
-            "model": model,
-            "max_tokens": 4096,
-            "system": system_blocks,
-            "tools": [
-                {
-                    "name": "emit_plan",
-                    "description": "Emit the current autoshelf plan as structured JSON.",
-                    "input_schema": self._tool_schema,
-                }
-            ],
-            "tool_choice": {"type": "tool", "name": "emit_plan"},
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": request_text,
-                        }
-                    ],
-                }
-            ],
-        }
+        return [
+            {"role": "system", "content": "\n\n".join(block["text"] for block in system_blocks)},
+            {"role": "user", "content": request_text},
+        ]
 
-    def _request(
-        self,
-        model: str,
-        draft_tree: dict[str, Any],
-        briefs: list[FileBrief],
-        prompt: str,
-        fallback,
-        assignments: list[PlannerAssignment] | None = None,
-    ) -> PlannerResponse:
-        payload = self._messages_payload(briefs, draft_tree, model, assignments)
-        payload["messages"][0]["content"][0]["text"] = (
-            f"{prompt}\n\n{payload['messages'][0]['content'][0]['text']}"
-        )
-        if not self._circuit_breaker.allow_request():
-            logger.bind(component="planner").warning(
-                "anthropic circuit breaker open; using fallback for model={}",
-                model,
-            )
-            return self._fallback_response(fallback())
-        errors = self._retryable_errors()
-        for attempt in range(self._retry_policy.max_retries + 1):
-            try:
-                with self._rate_limiter:
-                    response = self._client.messages.create(**payload)
-                parsed = self._parse_response(response)
-                self._circuit_breaker.record_success()
-                usage = getattr(response, "usage", None)
-                self._usage.add_usage(
-                    input_tokens=getattr(usage, "input_tokens", 0) or 0,
-                    output_tokens=getattr(usage, "output_tokens", 0) or 0,
-                    cache_creation_input_tokens=getattr(usage, "cache_creation_input_tokens", 0)
-                    or 0,
-                    cache_read_input_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
-                )
-                logger.bind(component="planner").info(
-                    "anthropic call model={} in={} out={} cache_create={} cache_read={}",
-                    model,
-                    getattr(usage, "input_tokens", 0) or 0,
-                    getattr(usage, "output_tokens", 0) or 0,
-                    getattr(usage, "cache_creation_input_tokens", 0) or 0,
-                    getattr(usage, "cache_read_input_tokens", 0) or 0,
-                )
-                return parsed
-            except errors as exc:
-                if attempt >= self._retry_policy.max_retries:
-                    break
-                delay = self._retry_policy.sleep_for_attempt(attempt)
-                logger.bind(component="planner").warning(
-                    "retryable anthropic error on attempt {} after {:.2f}s delay: {}",
-                    attempt + 1,
-                    delay,
-                    exc,
-                )
-            except Exception:
-                break
-        self._circuit_breaker.record_failure()
-        return self._fallback_response(fallback())
-
-    def _parse_response(self, response: Any) -> PlannerResponse:
-        for block in getattr(response, "content", []):
-            if (
-                getattr(block, "type", None) == "tool_use"
-                and getattr(block, "name", None) == "emit_plan"
-            ):
-                return PlannerResponse.model_validate(block.input)
-        raise ValueError("Anthropic response did not include emit_plan tool_use output")
+    def _parse_response(self, response: dict[str, Any]) -> PlannerResponse:
+        choices = response.get("choices", [])
+        if not choices:
+            raise ValueError("LLM response did not include choices")
+        message = choices[0].get("message", {})
+        for tool_call in message.get("tool_calls", []):
+            function = tool_call.get("function", {})
+            if function.get("name") == "emit_plan":
+                return PlannerResponse.model_validate_json(function.get("arguments", "{}"))
+        content = message.get("content", "")
+        if isinstance(content, list):
+            content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
+        return PlannerResponse.model_validate(json.loads(str(content)))
 
     def _existing_folder_guide(self) -> str:
-        candidates = [Path.cwd() / "FOLDER_GUIDE.md"]
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate.read_text(encoding="utf-8")
-        return ""
-
-    def _retryable_errors(self) -> tuple[type[BaseException], ...]:
-        import anthropic  # type: ignore[import-not-found]
-
-        return (
-            anthropic.RateLimitError,
-            anthropic.InternalServerError,
-            anthropic.APIConnectionError,
-        )
+        guide = Path.cwd() / "FOLDER_GUIDE.md"
+        return guide.read_text(encoding="utf-8") if guide.exists() else ""
 
     def _fallback_response(self, result: PlannerResponse) -> PlannerResponse:
         self._usage.fallback_chunks += 1
@@ -513,16 +461,115 @@ class AnthropicPlannerLLM:
             assignment.fallback = True
         return result
 
+    def _create_completion(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None,
+        tool_choice: dict[str, Any] | None,
+        response_format: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        raise NotImplementedError
+
+
+class LocalHTTPPlannerLLM(StructuredPlannerLLM):
+    def __init__(
+        self,
+        config: AppConfig,
+        base_url: str,
+        rules: PlanningRules | None = None,
+    ) -> None:
+        super().__init__(config, rules)
+        self.base_url = base_url
+
+    def _create_completion(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None,
+        tool_choice: dict[str, Any] | None,
+        response_format: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        return chat_completion(
+            base_url=self.base_url,
+            model=self._config.llm.model_id,
+            messages=messages,
+            response_format=response_format,
+            tools=tools,
+            tool_choice=tool_choice,
+            max_tokens=self._config.llm.max_completion_tokens,
+        )
+
+
+class EmbeddedPlannerLLM(StructuredPlannerLLM):
+    def __init__(self, config: AppConfig, rules: PlanningRules | None = None) -> None:
+        super().__init__(config, rules)
+        self.runtime = EmbeddedLlamaRuntime(config)
+
+    def _create_completion(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None,
+        tool_choice: dict[str, Any] | None,
+        response_format: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        return self.runtime.create_chat_completion(
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            response_format=response_format,
+        )
+
+    def unload(self) -> None:
+        self.runtime.unload()
+
+
+def select_auto_provider(config: AppConfig) -> tuple[str, str | None]:
+    env_url = os.environ.get("AUTOSHELF_LLM_URL", "").strip()
+    if env_url:
+        probe = probe_openai_compatible(env_url, timeout=2.0)
+        if probe.ok:
+            return "local_http", probe.base_url
+    preferred = probe_openai_compatible("http://127.0.0.1:8081/v1", timeout=0.25)
+    if preferred.ok:
+        return "local_http", preferred.base_url
+    if ollama_is_up("http://127.0.0.1:11434", timeout=0.25):
+        return "local_http", "http://127.0.0.1:11434/v1"
+    return "embedded", None
+
 
 def get_planner_llm(
     config: AppConfig | None = None, rules: PlanningRules | None = None
 ) -> PlannerLLM:
-    from autoshelf.planner.providers import load_llm_provider
-
     cfg = config or AppConfig()
-    if cfg.llm.provider.lower() == "fake" or not os.environ.get("ANTHROPIC_API_KEY"):
+    provider = cfg.llm.provider.lower()
+    if provider == "fake":
         return FakeLLM()
-    return load_llm_provider(cfg, rules)
+    if provider == "local_http":
+        base_url = cfg.llm.local_http_url or os.environ.get("AUTOSHELF_LLM_URL", "").strip()
+        if not base_url:
+            return FakeLLM()
+        return LocalHTTPPlannerLLM(cfg, base_url, rules)
+    if provider == "embedded":
+        try:
+            return EmbeddedPlannerLLM(cfg, rules)
+        except Exception:
+            return FakeLLM()
+    if provider == "auto":
+        selected, base_url = select_auto_provider(cfg)
+        if selected == "local_http" and base_url:
+            return LocalHTTPPlannerLLM(cfg, base_url, rules)
+        try:
+            return EmbeddedPlannerLLM(cfg, rules)
+        except Exception:
+            return FakeLLM()
+    return FakeLLM()
+
+
+def estimate_resident_footprint_mb(config: AppConfig) -> int:
+    variant = get_variant(config.llm.model_id)
+    return variant.resident_footprint_mb_est
 
 
 def _deep_copy_tree(tree: dict[str, Any]) -> dict[str, Any]:
