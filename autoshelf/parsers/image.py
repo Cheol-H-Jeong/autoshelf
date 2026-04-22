@@ -10,6 +10,8 @@ def parse_image(path: Path, max_head_chars: int = 2000) -> ParsedContext:
         from PIL import Image  # type: ignore[import-not-found]
     except ImportError:
         return ParsedContext(title=path.stem, head_text="", extra_meta={"parser": "unavailable"})
+    if hasattr(Image, "UnidentifiedImageError") and not _looks_like_supported_image(path):
+        return ParsedContext(title=path.stem, head_text="", extra_meta={"parser": "failed"})
     try:
         with Image.open(path) as image:
             exif = image.getexif() or {}
@@ -24,6 +26,19 @@ def parse_image(path: Path, max_head_chars: int = 2000) -> ParsedContext:
             )
     except Exception:
         return ParsedContext(title=path.stem, head_text="", extra_meta={"parser": "failed"})
+
+
+def _looks_like_supported_image(path: Path) -> bool:
+    try:
+        header = path.read_bytes()[:16]
+    except OSError:
+        return False
+    return (
+        header.startswith(b"\xff\xd8\xff")
+        or header.startswith(b"\x89PNG\r\n\x1a\n")
+        or header.startswith(b"II*\x00")
+        or header.startswith(b"MM\x00*")
+    )
 
 
 PARSER_SPEC = ParserSpec(
