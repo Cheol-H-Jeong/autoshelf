@@ -85,6 +85,7 @@ class AutoshelfWindow(QMainWindow):
         self.tray_controller.quit_requested.connect(self.close)
         self.home_screen.scan_started.connect(self._update_scan_status)
         self.home_screen.scan_finished.connect(self._complete_scan_status)
+        self.home_screen.plan_requested.connect(self._on_plan_requested)
         self.apply_screen.apply_started.connect(self._set_apply_started_status)
         self.apply_screen.apply_progressed.connect(self._update_apply_status)
         self.apply_screen.apply_finished.connect(self._complete_apply_status)
@@ -112,6 +113,17 @@ class AutoshelfWindow(QMainWindow):
         self.review_screen.apply_config(self.config)
         self.apply_screen.apply_config(self.config)
         self.history_screen.apply_config(self.config)
+
+    def _on_plan_requested(self, root: str) -> None:
+        logger.debug("Plan requested from Home for root={}", root)
+        self.tabs.setCurrentWidget(self.options_screen)
+        self.statusBar().showMessage(f"옵션을 확인한 뒤 '계획 세우기'를 눌러 주세요 · {root}", 6000)
+        if hasattr(self.options_screen, "set_root"):
+            self.options_screen.set_root(root)
+        self.home_screen.plan_button.setEnabled(True)
+        self.home_screen.plan_button.setText(
+            f"{t('button.plan', self.config)} 세우기 →"
+        )
 
     def _scan_downloads_from_tray(self) -> None:
         downloads_path = self.tray_controller.downloads_path

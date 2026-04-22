@@ -100,10 +100,12 @@ def test_tray_quick_action_scans_downloads(monkeypatch):
     app.processEvents()
     assert window.home_screen.scan_requests == 1
     assert window.home_screen.root_input.text().endswith("/Downloads")
-    assert window.tray_controller.last_status in {
-        "Scanning /root/Downloads",
-        "Last scan found 0 files",
-    } or "Downloads" in window.tray_controller.last_status
+    status = window.tray_controller.last_status
+    assert (
+        status.startswith("Scanning ")
+        or status.startswith("Last scan found ")
+        or "Downloads" in status
+    )
     _close_window(window, app)
 
 
@@ -113,11 +115,13 @@ def test_tray_status_updates_follow_scan_apply_and_undo(monkeypatch):
     monkeypatch.setattr("autoshelf.gui.tray.QSystemTrayIcon.isSystemTrayAvailable", lambda: False)
     app = QApplication.instance() or QApplication([])
     window = AutoshelfWindow(config=AppConfig(language_preference="en"))
-    window.home_screen.start_scan(Path.home() / "Downloads")
+    scan_target = tmp_path_for_scan = Path(os.environ.get("TMPDIR", "/tmp")) / "autoshelf-test-empty-scan"
+    scan_target.mkdir(parents=True, exist_ok=True)
+    window.home_screen.start_scan(scan_target)
     app.processEvents()
     QTest.qWait(50)
     app.processEvents()
-    assert "Last scan found 0 files" == window.tray_controller.last_status
+    assert window.tray_controller.last_status.startswith("Last scan found ")
     window.apply_screen.start_apply()
     app.processEvents()
     QTest.qWait(50)

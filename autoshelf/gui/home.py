@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 
 from loguru import logger
@@ -20,18 +21,49 @@ from autoshelf.config import AppConfig
 from autoshelf.gui.widgets import Banner, Card, Dropzone, PrimaryButton, SecondaryButton
 from autoshelf.gui.widgets.titlebar import TitleBar
 from autoshelf.i18n import t
+from autoshelf.scanner import scan_directory
 
 
 class ScanWorker(QObject):
     finished = Signal(dict)
+    failed = Signal(str)
+
+    def __init__(self, root: str, config: AppConfig | None = None) -> None:
+        super().__init__()
+        self._root = root
+        self._config = config or AppConfig()
 
     def run(self) -> None:
-        self.finished.emit({"files": 0, "size_bytes": 0, "extensions": {}})
+        try:
+            root_path = Path(self._root).expanduser()
+            if not self._root or not root_path.exists() or not root_path.is_dir():
+                self.finished.emit({"files": 0, "size_bytes": 0, "extensions": {}})
+                return
+            files = scan_directory(root_path.resolve(), self._config)
+            extensions: Counter[str] = Counter()
+            total_size = 0
+            for item in files:
+                ext = item.extension or "(none)"
+                extensions[ext] += 1
+                total_size += item.size_bytes
+            self.finished.emit(
+                {
+                    "files": len(files),
+                    "size_bytes": total_size,
+                    "extensions": dict(extensions.most_common()),
+                    "root": str(root_path.resolve()),
+                }
+            )
+        except Exception as exc:
+            logger.exception("scan worker failed")
+            self.failed.emit(str(exc))
+            self.finished.emit({"files": 0, "size_bytes": 0, "extensions": {}, "error": str(exc)})
 
 
 class HomeScreen(QWidget):
     scan_started = Signal(str)
     scan_finished = Signal(str, dict)
+    plan_requested = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -39,6 +71,7 @@ class HomeScreen(QWidget):
         self.worker: ScanWorker | None = None
         self.scan_requests = 0
         self.last_scan_root = ""
+        self._last_stats: dict = {}
         self.setAcceptDrops(True)
         self.setAccessibleName("홈")
 
@@ -89,6 +122,7 @@ class HomeScreen(QWidget):
 
         self.plan_button = PrimaryButton("")
         self.plan_button.setEnabled(False)
+        self.plan_button.clicked.connect(self._on_plan_clicked)
         layout.addWidget(self.plan_button)
         self.apply_config()
 
@@ -109,9 +143,13 @@ class HomeScreen(QWidget):
         if root is not None:
             self.root_input.setText(str(root))
         self.last_scan_root = self.root_input.text().strip()
-        self.stats_view.setPlainText("스캔 준비 중...\n확장자 히스토그램을 계산하고 있습니다.")
+        self.plan_button.setEnabled(False)
+        self.stats_view.setPlainText(
+            f"스캔 중... ({self.last_scan_root or '경로 없음'})\n"
+            "파일 메타데이터를 수집하고 있습니다."
+        )
         self.thread = QThread(self)
-        self.worker = ScanWorker()
+        self.worker = ScanWorker(self.last_scan_root)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.finished.connect(self._render_stats)
@@ -125,19 +163,32 @@ class HomeScreen(QWidget):
         )
         self.thread.start()
 
+    def _on_plan_clicked(self) -> None:
+        root = self.last_scan_root or self.root_input.text().strip()
+        logger.debug("Plan button clicked (root={})", root)
+        self.plan_button.setEnabled(False)
+        self.plan_button.setText("계획 화면으로 이동 중...")
+        self.stats_view.append(f"\n→ 계획 세우기 요청됨 ({root})")
+        self.plan_requested.emit(root)
+
     def _render_stats(self, stats: dict) -> None:
+        self._last_stats = stats
         extensions = stats.get("extensions", {})
         histogram = "\n".join(f"{suffix:>6}  {count:>4}" for suffix, count in extensions.items())
-        self.stats_view.setPlainText(
-            "파일 {files}개\n크기 {size:,} bytes\n\n{histogram}".format(
-                files=stats.get("files", 0),
-                size=stats.get("size_bytes", 0),
-                histogram=histogram,
-            )
+        root_line = stats.get("root") or self.last_scan_root or "(경로 없음)"
+        error = stats.get("error")
+        body = "경로 {root}\n파일 {files}개\n크기 {size:,} bytes\n\n{histogram}".format(
+            root=root_line,
+            files=stats.get("files", 0),
+            size=stats.get("size_bytes", 0),
+            histogram=histogram or "(확장자 집계 없음)",
         )
-        self.plan_button.setEnabled(True)
+        if error:
+            body = f"⚠ 스캔 중 오류: {error}\n\n" + body
+        self.stats_view.setPlainText(body)
+        self.plan_button.setEnabled(stats.get("files", 0) > 0)
         self.scan_finished.emit(self.last_scan_root, stats)
-        logger.debug("Rendered GUI scan stats")
+        logger.debug("Rendered GUI scan stats (files={})", stats.get("files", 0))
 
     def _cleanup_thread(self) -> None:
         logger.debug("Cleaning up GUI scan worker thread")
