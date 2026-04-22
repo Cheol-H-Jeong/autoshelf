@@ -11,6 +11,7 @@ from autoshelf.config import AppConfig
 from autoshelf.gui.apply import ApplyScreen
 from autoshelf.gui.history import HistoryScreen
 from autoshelf.gui.home import HomeScreen
+from autoshelf.gui.options import OptionsScreen
 from autoshelf.gui.review import ReviewScreen
 from autoshelf.gui.settings import SettingsScreen
 from autoshelf.gui.theme import apply_theme
@@ -24,11 +25,13 @@ class AutoshelfWindow(QMainWindow):
         self.config = config or AppConfig.load()
         self.tabs = QTabWidget()
         self.home_screen = HomeScreen()
+        self.options_screen = OptionsScreen(config=self.config)
         self.review_screen = ReviewScreen()
         self.apply_screen = ApplyScreen()
         self.history_screen = HistoryScreen()
         self.settings_screen = SettingsScreen(config=self.config)
         self.tabs.addTab(self.home_screen, "")
+        self.tabs.addTab(self.options_screen, "")
         self.tabs.addTab(self.review_screen, "")
         self.tabs.addTab(self.apply_screen, "")
         self.tabs.addTab(self.history_screen, "")
@@ -54,6 +57,12 @@ class AutoshelfWindow(QMainWindow):
         self.rescan_shortcut = QShortcut(QKeySequence("F5"), self)
         self.rescan_shortcut.setContext(Qt.WidgetWithChildrenShortcut)
         self.rescan_shortcut.activated.connect(self._shortcut_rescan)
+        self.cheatsheet_shortcut = QShortcut(QKeySequence("Ctrl+?"), self)
+        self.cheatsheet_shortcut.setContext(Qt.WidgetWithChildrenShortcut)
+        self.cheatsheet_shortcut.activated.connect(self._show_cheatsheet)
+
+    def _show_cheatsheet(self) -> None:
+        self.statusBar().showMessage("Ctrl+Enter 적용 · Ctrl+Z 되돌리기 · F5 다시 스캔", 4000)
 
     def _shortcut_apply(self) -> None:
         logger.debug("Triggered Ctrl+Enter apply shortcut")
@@ -94,10 +103,11 @@ class AutoshelfWindow(QMainWindow):
     def _refresh_labels(self) -> None:
         self.setWindowTitle(t("app.title", self.config))
         self.tabs.setTabText(0, t("home.title", self.config))
-        self.tabs.setTabText(1, t("review.title", self.config))
-        self.tabs.setTabText(2, t("apply.title", self.config))
-        self.tabs.setTabText(3, t("history.title", self.config))
-        self.tabs.setTabText(4, t("settings.title", self.config))
+        self.tabs.setTabText(1, "옵션")
+        self.tabs.setTabText(2, t("review.title", self.config))
+        self.tabs.setTabText(3, t("apply.title", self.config))
+        self.tabs.setTabText(4, t("history.title", self.config))
+        self.tabs.setTabText(5, t("settings.title", self.config))
         self.home_screen.apply_config(self.config)
         self.review_screen.apply_config(self.config)
         self.apply_screen.apply_config(self.config)

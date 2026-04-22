@@ -1,0 +1,16 @@
+<RCC>
+  <qresource prefix="/icons/lucide">
+    <file>icons/lucide/folder.svg</file>
+    <file>icons/lucide/upload-cloud.svg</file>
+    <file>icons/lucide/check.svg</file>
+    <file>icons/lucide/x.svg</file>
+    <file>icons/lucide/alert-triangle.svg</file>
+    <file>icons/lucide/info.svg</file>
+    <file>icons/lucide/settings.svg</file>
+    <file>icons/lucide/clock.svg</file>
+    <file>icons/lucide/file-text.svg</file>
+    <file>icons/lucide/more-horizontal.svg</file>
+    <file>icons/lucide/shield.svg</file>
+    <file>icons/lucide/play.svg</file>
+  </qresource>
+</RCC>

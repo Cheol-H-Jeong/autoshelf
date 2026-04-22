@@ -20,6 +20,8 @@ from PySide6.QtWidgets import (
 )
 
 from autoshelf.config import AppConfig
+from autoshelf.gui.design import LIGHT
+from autoshelf.gui.widgets import GhostButton, PrimaryButton, SecondaryButton
 from autoshelf.i18n import t
 from autoshelf.planner.models import PlannerAssignment
 from autoshelf.quarantine import (
@@ -50,8 +52,10 @@ class ReviewScreen(QWidget):
 
         splitter = QSplitter()
         self.current_tree = QTreeWidget()
+        self.current_tree.setAccessibleName("현재 트리")
         self.current_tree.setHeaderLabels(["Current Tree"])
         self.proposed_tree = ReviewTreeWidget()
+        self.proposed_tree.setAccessibleName("제안 트리")
         self.proposed_tree.setHeaderLabels(["Proposed Tree", "Action", "Preview"])
         self.proposed_tree.setDragDropMode(QTreeWidget.InternalMove)
         self.proposed_tree.setEditTriggers(QTreeWidget.DoubleClicked | QTreeWidget.EditKeyPressed)
@@ -66,6 +70,7 @@ class ReviewScreen(QWidget):
         layout.addWidget(splitter)
 
         self.assignment_table = QTableWidget(0, 6)
+        self.assignment_table.setAccessibleName("파일별 계획 표")
         self.assignment_table.setHorizontalHeaderLabels(
             ["Path", "Action", "Target", "Confidence", "Why this folder?", "Also relevant"]
         )
@@ -81,10 +86,10 @@ class ReviewScreen(QWidget):
         layout.addWidget(self.folder_hint)
 
         button_row = QHBoxLayout()
-        self.rerun_button = QPushButton("")
-        self.replan_quarantine_button = QPushButton("")
-        self.clear_quarantine_button = QPushButton("")
-        self.approve_button = QPushButton("")
+        self.rerun_button: QPushButton = SecondaryButton("")
+        self.replan_quarantine_button: QPushButton = SecondaryButton("")
+        self.clear_quarantine_button: QPushButton = GhostButton("")
+        self.approve_button: QPushButton = PrimaryButton("")
         button_row.addWidget(self.rerun_button)
         button_row.addWidget(self.replan_quarantine_button)
         button_row.addWidget(self.clear_quarantine_button)
@@ -263,13 +268,13 @@ class ReviewScreen(QWidget):
 
     def _status_color(self, status: str) -> QColor:
         colors = {
-            "moved": QColor("#1f9d55"),
-            "kept": QColor("#6b7280"),
-            "placed": QColor("#2563eb"),
-            "quarantine": QColor("#c26d00"),
-            "reassigned": QColor("#b45309"),
+            "moved": QColor(LIGHT.success),
+            "kept": QColor(LIGHT.text_muted),
+            "placed": QColor(LIGHT.accent),
+            "quarantine": QColor(LIGHT.warning),
+            "reassigned": QColor(LIGHT.warning),
         }
-        return colors.get(status, QColor("#111827"))
+        return colors.get(status, QColor(LIGHT.text))
 
     def _action_label(self, action: str) -> str:
         labels = {

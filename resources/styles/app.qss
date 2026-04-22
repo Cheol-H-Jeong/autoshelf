@@ -1,0 +1,97 @@
+QWidget {
+  background: {{ app_bg }};
+  color: {{ text }};
+  font-size: 13px;
+}
+
+QMainWindow, QTabWidget::pane {
+  background: {{ app_bg }};
+  border: 0;
+}
+
+QTabBar::tab {
+  background: {{ surface_muted }};
+  color: {{ text_muted }};
+  padding: 8px 16px;
+  min-height: 32px;
+  border: 1px solid {{ border }};
+}
+
+QTabBar::tab:selected {
+  background: {{ surface }};
+  color: {{ text }};
+  border-bottom: 2px solid {{ accent }};
+}
+
+QPushButton {
+  min-height: 40px;
+  border-radius: 8px;
+  padding: 0 16px;
+  font-size: 13px;
+  border: 1px solid {{ border }};
+  background: {{ surface }};
+  color: {{ text }};
+}
+
+QPushButton#primaryAction, QPushButton[buttonRole="primary"] {
+  min-height: 48px;
+  background: {{ accent }};
+  border: 1px solid {{ accent }};
+  color: {{ accent_text }};
+  font-weight: 600;
+}
+
+QPushButton#primaryAction:hover, QPushButton[buttonRole="primary"]:hover {
+  background: {{ accent_hover }};
+}
+
+QPushButton[buttonRole="danger"] {
+  border-color: {{ danger }};
+  color: {{ danger }};
+}
+
+QPushButton[buttonRole="ghost"] {
+  background: transparent;
+  border-color: transparent;
+  color: {{ text_muted }};
+}
+
+QPushButton:focus, QLineEdit:focus, QComboBox:focus, QCheckBox:focus, QSlider:focus,
+QTextEdit:focus, QListWidget:focus, QTreeWidget:focus, QTableWidget:focus {
+  outline: 2px solid {{ focus }};
+  border: 2px solid {{ focus }};
+}
+
+QLineEdit, QTextEdit, QComboBox, QTableWidget, QTreeWidget, QListWidget {
+  background: {{ surface }};
+  color: {{ text }};
+  border: 1px solid {{ border }};
+  border-radius: 8px;
+  padding: 8px;
+  selection-background-color: {{ accent }};
+}
+
+QProgressBar {
+  background: {{ surface_muted }};
+  border: 1px solid {{ border }};
+  border-radius: 8px;
+  height: 16px;
+  text-align: center;
+}
+
+QProgressBar::chunk {
+  background: {{ accent }};
+  border-radius: 8px;
+}
+
+QFrame[component="card"] {
+  background: {{ surface }};
+  border: 1px solid {{ border }};
+  border-radius: 12px;
+}
+
+QFrame[component="banner"] {
+  background: {{ surface_raised }};
+  border: 1px solid {{ border }};
+  border-radius: 8px;
+}
