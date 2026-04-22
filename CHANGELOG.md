@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.0.0
+
+- Replaced all cloud planner assumptions with an on-device-first runtime: embedded `llama-cpp-python`, bundled-on-first-run Qwen3 GGUF tiers, loopback-only local HTTP fallback, and a stricter privacy posture that blocks remote LLM hosts by default.
+- Retargeted autoshelf for Windows 10/11 laptops with 8 GB RAM by defaulting to the Qwen3 1.7B Q4 model, adding RAM-aware tiering, model diagnostics, and model-management CLI surfaces.
+- Removed the legacy Anthropic path from runtime dependencies, provider selection, GUI copy, and diagnostics as part of the v2 privacy pivot.
+
 ## v1.0.33
 
 - Added real drag-and-drop reassignment in the desktop Review tree, so operators can move an individual proposed file into a different planned folder before apply instead of treating the preview as read-only.

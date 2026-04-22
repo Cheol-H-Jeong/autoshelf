@@ -453,6 +453,7 @@ def _verify_wheel(wheel_path: Path, metadata: ProjectMetadata) -> None:
 
                     runtime_dir = Path(sys.argv[1]).resolve()
                     sys.path[:] = [str(runtime_dir), *[entry for entry in sys.path if entry]]
+                    import llama_cpp  # noqa: F401
                     sys.argv = ["autoshelf", "version"]
                     runpy.run_module("autoshelf", run_name="__main__", alter_sys=True)
                     """

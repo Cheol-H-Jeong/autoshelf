@@ -1,11 +1,12 @@
 # autoshelf
 
-`autoshelf` scans a folder, extracts lightweight content context, drafts a reversible organization plan, applies moves plus shortcuts, and leaves behind `FOLDER_GUIDE.md`, `FILE_INDEX.md`, and a tamper-evident `manifest.jsonl`.
+**100% on-device. No cloud. No API keys. 8 GB RAM is enough.** `autoshelf` scans a folder, extracts lightweight content context, drafts a reversible organization plan with a bundled local Qwen3 model, applies moves plus shortcuts, and leaves behind `FOLDER_GUIDE.md`, `FILE_INDEX.md`, and a tamper-evident `manifest.jsonl`. The installer does not bundle the model; first use downloads about 1 GB once, then the app stays offline by default.
 
 ## Features
 
-- Real Anthropic planner path with tool-use JSON, jittered retries, a cooldown circuit breaker, prompt caching fields, and per-chunk FakeLLM fallback.
-- Offline deterministic planning for CI and first-run use.
+- Embedded `llama-cpp-python` planner path with bundled-on-first-run Qwen3 GGUF tiers sized for 8 GB laptops.
+- Loopback-only local HTTP fallback for advanced self-hosted users; remote hosts are blocked unless `AUTOSHELF_ALLOW_REMOTE_LLM=1`.
+- Offline deterministic planning for CI and no-model fallback use.
 - Parser coverage for text, pdf, office, hwp, image, code, archive, and media files.
 - Two-phase apply with resumable run plans, interrupt-aware run state, staged cross-device moves, hash verification, duplicate-content collapsing, and undo history.
 - PySide6 desktop GUI with saved light/dark theme support, runtime language/theme updates, rationale-rich review previews, and dedicated Home, Review, Apply, History, and Settings tabs.
@@ -68,7 +69,7 @@ python -m autoshelf version
 python -m autoshelf gui
 ```
 
-Offline planning is used automatically when `ANTHROPIC_API_KEY` is unset or `llm.provider = "fake"`.
+The default provider order is `auto`: loopback local HTTP if present, then embedded `llama-cpp-python`, then heuristic fallback when no model is available.
 
 To generate a realistic evaluation inbox without customer data:
 

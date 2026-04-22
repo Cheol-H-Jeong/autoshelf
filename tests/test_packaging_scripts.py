@@ -155,6 +155,7 @@ def _load_build_module():
 
 def _write_sample_project(root: Path) -> None:
     (root / "autoshelf").mkdir(parents=True, exist_ok=True)
+    (root / "llama_cpp").mkdir(parents=True, exist_ok=True)
     (root / "packaging" / "linux").mkdir(parents=True, exist_ok=True)
     (root / "autoshelf" / "__init__.py").write_text(
         'from __future__ import annotations\n\n__version__ = "1.0.2"\n',
@@ -167,6 +168,10 @@ def _write_sample_project(root: Path) -> None:
         "    print(__version__)\n\n"
         "if __name__ == \"__main__\":\n"
         "    main()\n",
+        encoding="utf-8",
+    )
+    (root / "llama_cpp" / "__init__.py").write_text(
+        '__version__ = "0.3.0-test"\n',
         encoding="utf-8",
     )
     (root / "packaging" / "linux" / "autoshelf.desktop").write_text(
@@ -197,7 +202,7 @@ requires-python = ">=3.11"
 autoshelf = "autoshelf.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["autoshelf*"]
+include = ["autoshelf*", "llama_cpp*"]
 """.strip()
         + "\n",
         encoding="utf-8",
