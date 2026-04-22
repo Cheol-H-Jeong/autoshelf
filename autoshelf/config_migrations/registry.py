@@ -8,7 +8,7 @@ from loguru import logger
 from autoshelf.config_migrations.models import MigrationResult, MigrationStep
 from autoshelf.config_migrations.versions import MIGRATIONS
 
-LATEST_CONFIG_VERSION = 2
+LATEST_CONFIG_VERSION = 3
 
 MigrationFunc = Callable[[dict[str, Any]], dict[str, Any]]
 _MIGRATIONS: list[tuple[MigrationStep, MigrationFunc]] = sorted(

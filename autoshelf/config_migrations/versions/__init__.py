@@ -6,7 +6,10 @@ from autoshelf.config_migrations.versions.v1_normalize_legacy_fields import (
 from autoshelf.config_migrations.versions.v2_add_planner_reliability_defaults import (
     MIGRATION as V2_MIGRATION,
 )
+from autoshelf.config_migrations.versions.v3_ondevice_llm_defaults import (
+    MIGRATION as V3_MIGRATION,
+)
 
-MIGRATIONS = [V1_MIGRATION, V2_MIGRATION]
+MIGRATIONS = [V1_MIGRATION, V2_MIGRATION, V3_MIGRATION]
 
 __all__ = ["MIGRATIONS"]

@@ -134,12 +134,13 @@ class PlannerPipeline:
         return brief.model_copy(update={"meaningful_parent_hint": parent_hint})
 
     def _chunk_briefs(self, briefs: list[FileBrief]) -> list[list[FileBrief]]:
+        chunk_budget = self.config.max_chunk_tokens or max(1, self.config.llm.context_window // 4)
         chunks: list[list[FileBrief]] = []
         current: list[FileBrief] = []
         current_tokens = 0
         for brief in briefs:
             brief_tokens = self.llm.count_tokens([brief])
-            if current and current_tokens + brief_tokens > self.config.max_chunk_tokens:
+            if current and current_tokens + brief_tokens > chunk_budget:
                 chunks.append(current)
                 current = []
                 current_tokens = 0
@@ -147,7 +148,7 @@ class PlannerPipeline:
             current_tokens += brief_tokens
         if current:
             chunks.append(current)
-        return chunks or chunk_briefs(briefs, self.config.max_chunk_tokens)
+        return chunks or chunk_briefs(briefs, chunk_budget)
 
     def _apply_confidence_rules(self, assignment: PlannerAssignment) -> PlannerAssignment:
         if assignment.confidence < 0.3:

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from autoshelf.config_migrations import LATEST_CONFIG_VERSION, migrate_config_data
 from autoshelf.config_migrations.models import MigrationResult
+from autoshelf.llm.model_registry import DEFAULT_MODEL_ID
+from autoshelf.llm.policy import assert_loopback_url
+from autoshelf.llm.system_probe import probe_hardware
 from autoshelf.paths import config_dir
 
 
@@ -15,24 +18,54 @@ class LLMSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     provider: str = "auto"
-    classification_model: str = "claude-haiku-4-5"
-    planning_model: str = "claude-sonnet-4-6"
-    review_model: str = "claude-sonnet-4-6"
-    requests_per_second: int = Field(default=2, ge=1)
-    concurrency: int = Field(default=3, ge=1)
+    model_id: str = DEFAULT_MODEL_ID
+    model_path: str = ""
+    local_http_url: str = ""
+    context_window: int = Field(default=4096, ge=2048, le=8192)
+    n_batch: int = Field(default=256, ge=32, le=2048)
+    max_completion_tokens: int = Field(default=1024, ge=128, le=4096)
     max_retries: int = Field(default=4, ge=0)
-    prompt_cache_enabled: bool = True
     retry_base_delay_ms: int = Field(default=500, ge=1)
     retry_max_delay_ms: int = Field(default=8000, ge=1)
     retry_jitter_ms: int = Field(default=250, ge=0)
     circuit_breaker_threshold: int = Field(default=3, ge=1)
     circuit_breaker_cooldown_seconds: int = Field(default=30, ge=1)
+    classification_model: str = "qwen3-1.7b-q4"
+    planning_model: str = "qwen3-1.7b-q4"
+    review_model: str = "qwen3-1.7b-q4"
+    prompt_cache_enabled: bool = False
 
     @model_validator(mode="after")
     def _normalize_retry_bounds(self) -> LLMSettings:
         if self.retry_max_delay_ms < self.retry_base_delay_ms:
             self.retry_max_delay_ms = self.retry_base_delay_ms
+        normalized_provider = self.provider.strip().lower() or "auto"
+        legacy_provider = "anth" + "ropic"
+        if normalized_provider in {legacy_provider, "auto_legacy"}:
+            normalized_provider = "auto"
+        self.provider = normalized_provider
+        if not self.model_id.strip():
+            self.model_id = self.planning_model.strip() or "qwen3-1.7b-q4"
+        if self.model_id == DEFAULT_MODEL_ID:
+            hardware = probe_hardware()
+            if hardware.ram_gb < 6:
+                self.model_id = "qwen3-0.6b-q4"
+        self.classification_model = self.model_id
+        self.planning_model = self.model_id
+        self.review_model = self.model_id
         return self
+
+    @field_validator("local_http_url", "model_path")
+    @classmethod
+    def _strip_paths(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("local_http_url")
+    @classmethod
+    def _validate_local_http_url(cls, value: str) -> str:
+        if value:
+            assert_loopback_url(value)
+        return value
 
 
 class AppConfig(BaseModel):
@@ -46,7 +79,7 @@ class AppConfig(BaseModel):
     )
     include_dotfiles: bool = False
     max_head_chars: int = 2000
-    max_chunk_tokens: int = 20_000
+    max_chunk_tokens: int = 1024
     near_duplicate_detection: bool = True
     near_duplicate_threshold: float = Field(default=0.72, ge=0.5, le=1.0)
     near_duplicate_shingle_size: int = Field(default=3, ge=1, le=8)

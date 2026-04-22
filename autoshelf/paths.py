@@ -5,6 +5,19 @@ import sys
 from pathlib import Path
 
 
+def cache_dir() -> Path:
+    if sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        return base / "autoshelf"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "autoshelf"
+    return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "autoshelf"
+
+
+def models_dir() -> Path:
+    return cache_dir() / "models"
+
+
 def config_dir() -> Path:
     if sys.platform == "win32":
         return Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "autoshelf"
