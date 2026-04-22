@@ -16,6 +16,13 @@ from autoshelf.config import AppConfig
 from autoshelf.config_admin import inspect_config, migrate_config_file
 from autoshelf.db import ContextRecord, Database, FileRecord, default_db_path
 from autoshelf.doctor import doctor_exit_code, run_diagnostics
+from autoshelf.llm.model_registry import (
+    ensure_model_downloaded,
+    get_variant,
+    list_variants,
+    resolve_model_path,
+)
+from autoshelf.llm.system_probe import probe_hardware
 from autoshelf.logging_utils import configure_logging
 from autoshelf.parsers import parse_file
 from autoshelf.planner.draft import load_draft
@@ -119,6 +126,56 @@ def _run_command(args: argparse.Namespace, reporter: ProgressReporter) -> Comman
         exit_code = doctor_exit_code(report)
         reporter.emit("doctor.completed", data={"status": exit_code})
         return CommandOutcome(exit_code=exit_code, payload=report)
+    if args.command == "model":
+        config = AppConfig.load(Path(args.config) if args.config else None)
+        hardware = probe_hardware(Path.cwd())
+        if args.model_command == "list":
+            return CommandOutcome(
+                payload=[
+                    {
+                        "model_id": variant.model_id,
+                        "download_mb": variant.download_mb,
+                        "resident_footprint_mb_est": variant.resident_footprint_mb_est,
+                        "recommended_ram_gb": variant.recommended_ram_gb,
+                        "license": variant.license_name,
+                        "throughput_hint": variant.throughput_hint,
+                    }
+                    for variant in list_variants()
+                ]
+            )
+        if args.model_command == "current":
+            variant = get_variant(config.llm.model_id)
+            return CommandOutcome(
+                payload={
+                    "model_id": config.llm.model_id,
+                    "model_path": str(
+                        resolve_model_path(config.llm.model_id, config.llm.model_path)
+                    ),
+                    "download_mb": variant.download_mb,
+                    "resident_footprint_mb_est": variant.resident_footprint_mb_est,
+                }
+            )
+        if args.model_command == "download":
+            target_model = args.variant or config.llm.model_id
+            path = ensure_model_downloaded(target_model, configured_path=config.llm.model_path)
+            return CommandOutcome(payload={"model_id": target_model, "model_path": str(path)})
+        if args.model_command == "use":
+            variant = get_variant(args.variant)
+            if hardware.ram_gb * 1024 < variant.resident_footprint_mb_est and not args.force:
+                return CommandOutcome(
+                    exit_code=1,
+                    payload={
+                        "error": "insufficient_ram",
+                        "ram_gb": hardware.ram_gb,
+                        "required_mb": variant.resident_footprint_mb_est,
+                    },
+                )
+            config.llm.model_id = args.variant
+            config.llm.planning_model = args.variant
+            config.llm.classification_model = args.variant
+            config.llm.review_model = args.variant
+            config.save(Path(args.config) if args.config else None)
+            return CommandOutcome(payload={"model_id": args.variant})
     if args.command == "verify":
         reporter.emit("verify.started")
         report = verify_root(Path(args.root).expanduser().resolve())
@@ -173,7 +230,7 @@ def _run_command(args: argparse.Namespace, reporter: ProgressReporter) -> Comman
     if getattr(args, "chunk_tokens", None):
         config.max_chunk_tokens = args.chunk_tokens
     if getattr(args, "model", None):
-        config.llm.planning_model = args.model
+        config.llm.model_id = args.model
     if args.command == "scan":
         reporter.emit("scan.started", message=str(root))
         files = scan_directory(
@@ -326,6 +383,15 @@ def build_parser() -> argparse.ArgumentParser:
     config_migrate = config_subparsers.add_parser("migrate", help="Apply config migrations")
     config_migrate.add_argument("--write", action="store_true", default=False)
     config_migrate.add_argument("--no-backup", action="store_true", default=False)
+    model_parser = subparsers.add_parser("model", help="Inspect and manage embedded local models")
+    model_subparsers = model_parser.add_subparsers(dest="model_command", required=True)
+    model_subparsers.add_parser("list", help="List bundled registry variants")
+    model_subparsers.add_parser("current", help="Show the current model")
+    model_download = model_subparsers.add_parser("download", help="Download a model variant")
+    model_download.add_argument("variant", nargs="?")
+    model_use = model_subparsers.add_parser("use", help="Switch the active model")
+    model_use.add_argument("variant")
+    model_use.add_argument("--force", action="store_true", default=False)
     rules_parser = subparsers.add_parser("rules", help="Inspect the effective YAML rules policy")
     rules_subparsers = rules_parser.add_subparsers(dest="rules_command", required=True)
     rules_show = rules_subparsers.add_parser("show", help="Show normalized rules for a root")

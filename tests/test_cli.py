@@ -38,6 +38,7 @@ def test_cli_help_lists_expected_subcommands():
         "stats",
         "gui",
         "doctor",
+        "model",
         "rules",
         "version",
     ]:
@@ -298,7 +299,7 @@ def test_cli_config_show_reports_pending_migrations(tmp_path):
     payload = json.loads(completed.stdout)
     assert payload["schema_version"] == 0
     assert payload["up_to_date"] is False
-    assert [step["version"] for step in payload["pending_migrations"]] == [1, 2]
+    assert [step["version"] for step in payload["pending_migrations"]] == [1, 2, 3]
 
 
 def test_cli_config_migrate_writes_backup_and_updated_config(tmp_path):
