@@ -62,6 +62,22 @@ class BuildResult(BaseModel):
     metadata_path: Path
 
 
+class WindowsBuildMetadata(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    version: str
+    target: str
+    artifact: str
+    sha256: str
+    pyinstaller_spec: str
+    inno_script: str
+    packaged_files: list[str] = Field(default_factory=list)
+    registry_keys: list[str] = Field(default_factory=list)
+    shortcuts: list[str] = Field(default_factory=list)
+    dry_run: bool = False
+
+
 def build(
     root: Path | None = None,
     output_dir: Path | None = None,
@@ -100,6 +116,184 @@ def build(
             wheel_path=wheel_path,
             metadata_path=metadata_path,
         )
+
+
+def build_windows(
+    root: Path | None = None,
+    output_dir: Path | None = None,
+    dry_run: bool = False,
+    cross_from_linux: bool = False,
+) -> WindowsBuildMetadata:
+    project_root = (root or Path(__file__).resolve().parents[1]).resolve()
+    metadata = _load_project_metadata(project_root)
+    dist_dir = (output_dir or project_root / "dist").resolve()
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    rendered_iss = render_inno_script(
+        project_root, metadata.version, dist_dir / "autoshelf-rendered.iss"
+    )
+    generate_windows_icon(project_root)
+    artifact = dist_dir / f"autoshelf-{metadata.version}-win-x64-setup.exe"
+    spec_path = project_root / "packaging" / "pyinstaller.spec"
+    packaged_files = _audit_windows_file_list(project_root)
+    build_metadata = WindowsBuildMetadata(
+        name=metadata.name,
+        version=metadata.version,
+        target="windows-dry-run" if dry_run else "windows",
+        artifact=str(artifact),
+        sha256="0" * 64 if dry_run or not artifact.exists() else _sha256(artifact),
+        pyinstaller_spec=str(spec_path),
+        inno_script=str(rendered_iss),
+        packaged_files=packaged_files,
+        registry_keys=[
+            r"HKCU\Software\Classes\.autoshelf-plan",
+            r"HKCU\Software\Classes\autoshelf.plan\shell\open\command",
+        ],
+        shortcuts=["autoshelf", "autoshelf CLI", "문서 열기"],
+        dry_run=dry_run,
+    )
+    (dist_dir / "build-metadata.json").write_text(
+        build_metadata.model_dump_json(indent=2) + "\n", encoding="utf-8"
+    )
+    (artifact.with_suffix(artifact.suffix + ".sha256")).write_text(
+        f"{build_metadata.sha256}  {artifact.name}\n", encoding="utf-8"
+    )
+    if dry_run:
+        logger.info("Windows dry-run audited {} package inputs", len(packaged_files))
+        return build_metadata
+    if cross_from_linux and sys.platform != "win32":
+        iscc = shutil.which("iscc") or shutil.which("iscc.exe")
+        wine = shutil.which("wine")
+        if not iscc and not wine:
+            raise RuntimeError("Windows cross-build requires wine and Inno Setup iscc.exe on PATH")
+    _run_pyinstaller(project_root, spec_path)
+    _run_inno(project_root, rendered_iss)
+    if not artifact.exists():
+        raise RuntimeError(f"Inno Setup did not produce expected artifact: {artifact}")
+    sha = _sha256(artifact)
+    artifact.with_suffix(artifact.suffix + ".sha256").write_text(
+        f"{sha}  {artifact.name}\n",
+        encoding="utf-8",
+    )
+    build_metadata = build_metadata.model_copy(update={"sha256": sha, "dry_run": False})
+    (dist_dir / "build-metadata.json").write_text(
+        build_metadata.model_dump_json(indent=2) + "\n", encoding="utf-8"
+    )
+    _maybe_sign_installer(artifact)
+    return build_metadata
+
+
+def render_inno_script(project_root: Path, version: str, output_path: Path) -> Path:
+    template = project_root / "packaging" / "windows" / "autoshelf.iss"
+    text = template.read_text(encoding="utf-8")
+    text = text.replace("{{VERSION}}", version)
+    project_root_text = (
+        str(project_root).replace("/", "\\") if sys.platform == "win32" else str(project_root)
+    )
+    text = text.replace("{{PROJECT_ROOT}}", project_root_text)
+    if "{{VERSION}}" in text or "{{PROJECT_ROOT}}" in text:
+        raise RuntimeError("Unresolved Inno Setup template variable")
+    output_path.write_text(text, encoding="utf-8")
+    return output_path
+
+
+def generate_windows_icon(project_root: Path) -> Path:
+    icon_path = project_root / "resources" / "icons" / "autoshelf.ico"
+    if icon_path.exists():
+        return icon_path
+    try:
+        from PIL import Image, ImageDraw
+    except Exception:
+        icon_path.write_bytes(b"\x00\x00\x01\x00")
+        return icon_path
+    icon_path.parent.mkdir(parents=True, exist_ok=True)
+    images = []
+    for size in (16, 32, 48, 64, 128, 256):
+        image = Image.new("RGBA", (size, size), (37, 99, 235, 255))
+        draw = ImageDraw.Draw(image)
+        margin = max(2, size // 6)
+        draw.rounded_rectangle(
+            (margin, margin, size - margin, size - margin),
+            radius=size // 8,
+            outline=(255, 255, 255, 255),
+            width=max(1, size // 16),
+        )
+        draw.line(
+            (margin * 2, size // 2, size - margin * 2, size // 2),
+            fill=(255, 255, 255, 255),
+            width=max(1, size // 16),
+        )
+        images.append(image)
+    images[0].save(
+        icon_path,
+        sizes=[(image.width, image.height) for image in images],
+        append_images=images[1:],
+    )
+    return icon_path
+
+
+def _audit_windows_file_list(project_root: Path) -> list[str]:
+    candidates = [
+        project_root / "autoshelf",
+        project_root / "resources",
+        project_root / "docs" / "USER_GUIDE.md",
+        project_root / "LICENSE",
+        project_root / "packaging" / "pyinstaller.spec",
+        project_root / "packaging" / "windows" / "autoshelf.iss",
+    ]
+    files: list[str] = []
+    for candidate in candidates:
+        if candidate.is_file():
+            files.append(candidate.relative_to(project_root).as_posix())
+        elif candidate.is_dir():
+            files.extend(
+                path.relative_to(project_root).as_posix()
+                for path in candidate.rglob("*")
+                if path.is_file() and "__pycache__" not in path.parts
+            )
+    return sorted(files)
+
+
+def _run_pyinstaller(project_root: Path, spec_path: Path) -> None:
+    command = [sys.executable, "-m", "PyInstaller", "--noconfirm", str(spec_path)]
+    logger.info("Running {}", " ".join(command))
+    subprocess.run(command, cwd=project_root, check=True)
+
+
+def _run_inno(project_root: Path, iss_path: Path) -> None:
+    iscc = shutil.which("iscc.exe") or shutil.which("iscc")
+    if iscc is None:
+        raise RuntimeError("iscc.exe was not found on PATH")
+    subprocess.run([iscc, str(iss_path)], cwd=project_root, check=True)
+
+
+def _maybe_sign_installer(artifact: Path) -> None:
+    cert = __import__("os").environ.get("AUTOSHELF_SIGNING_CERT")
+    password = __import__("os").environ.get("AUTOSHELF_SIGNING_PASS")
+    if not cert or not password:
+        logger.warning("AUTOSHELF_SIGNING_CERT/PASS not set; produced unsigned installer")
+        return
+    signtool = shutil.which("signtool.exe") or shutil.which("signtool")
+    if signtool is None:
+        logger.warning("signtool.exe not found; produced unsigned installer")
+        return
+    subprocess.run(
+        [
+            signtool,
+            "sign",
+            "/f",
+            cert,
+            "/p",
+            password,
+            "/tr",
+            "http://timestamp.digicert.com",
+            "/td",
+            "sha256",
+            "/fd",
+            "sha256",
+            str(artifact),
+        ],
+        check=True,
+    )
 
 
 def _build_wheel(project_root: Path, wheel_dir: Path) -> Path:
@@ -587,10 +781,16 @@ def _sha256(path: Path) -> str:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="packaging/build.py")
+    parser.add_argument(
+        "--target",
+        choices=["linux", "windows", "windows-dry-run"],
+        default="linux",
+    )
     parser.add_argument("--root", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--verify-install", action="store_true", default=False)
     parser.add_argument("--verify-wheel", action="store_true", default=False)
+    parser.add_argument("--cross-from-linux", action="store_true", default=False)
     return parser
 
 
@@ -598,6 +798,15 @@ def main() -> None:
     logger.remove()
     logger.add(sys.stderr, level="INFO")
     args = _build_parser().parse_args()
+    if args.target in {"windows", "windows-dry-run"}:
+        metadata = build_windows(
+            root=args.root,
+            output_dir=args.output_dir,
+            dry_run=args.target == "windows-dry-run",
+            cross_from_linux=args.cross_from_linux,
+        )
+        print(metadata.artifact)
+        return
     result = build(
         root=args.root,
         output_dir=args.output_dir,

@@ -9,8 +9,9 @@
 - Offline deterministic planning for CI and no-model fallback use.
 - Parser coverage for text, pdf, office, hwp, image, code, archive, and media files.
 - Two-phase apply with resumable run plans, interrupt-aware run state, staged cross-device moves, hash verification, duplicate-content collapsing, and undo history.
-- PySide6 desktop GUI with saved light/dark theme support, runtime language/theme updates, rationale-rich review previews, and dedicated Home, Review, Apply, History, and Settings tabs.
+- PySide6 desktop GUI redesigned around dropzone onboarding, a dedicated Options step, progress shell, tree-diff review, history timeline, and tabbed Settings.
 - Korean and English UI catalogs.
+- Buildable Windows installer pipeline with PyInstaller one-dir output and Inno Setup packaging.
 
 Operator documentation lives in [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md).
 Demo data for local evaluation lives in [`examples/`](examples/README.md).
@@ -48,6 +49,19 @@ py -3.11 -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -e .[all]
 ```
+
+Release builds produce `dist/autoshelf-2.1.0-win-x64-setup.exe` from
+`python packaging/build.py --target windows` on Windows. Linux development can validate the
+package shape with `python packaging/build.py --target windows-dry-run`.
+
+## GUI screenshots
+
+![Home](docs/screenshots/home.png)
+![Options](docs/screenshots/options.png)
+![Progress](docs/screenshots/progress.png)
+![Review](docs/screenshots/review.png)
+![History](docs/screenshots/history.png)
+![Settings](docs/screenshots/settings.png)
 
 ## CLI
 

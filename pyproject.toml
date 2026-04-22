@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autoshelf"
-version = "2.0.0"
+version = "2.1.0"
 description = "100% on-device folder organizer with embedded local LLM planning and PySide6 GUI"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -95,6 +95,11 @@ include = ["autoshelf*"]
 
 [tool.setuptools.package-data]
 autoshelf = ["i18n/*.json"]
+
+[tool.setuptools.data-files]
+"resources/icons/lucide" = ["resources/icons/lucide/*.svg", "resources/icons/lucide/LICENSE"]
+"resources/styles" = ["resources/styles/app.qss"]
+"resources" = ["resources/icons.qrc"]
 
 [tool.ruff]
 line-length = 100
