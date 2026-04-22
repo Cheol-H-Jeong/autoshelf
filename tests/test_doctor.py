@@ -8,8 +8,10 @@ def test_doctor_report_contains_required_checks(tmp_path, monkeypatch):
     report = run_diagnostics(tmp_path)
     assert "python_ok" in report["checks"]
     assert "rules_file_status" in report["checks"]
-    assert "anthropic" in report["dependencies"]
+    assert "llama_cpp" in report["dependencies"]
     assert "rules" in report
+    assert "privacy" in report
+    assert "llm" in report
 
 
 def test_doctor_exit_code_is_zero_when_core_checks_pass():
@@ -17,7 +19,8 @@ def test_doctor_exit_code_is_zero_when_core_checks_pass():
         "checks": {
             "python_ok": True,
             "state_dir_writable": True,
-        }
+        },
+        "llm": {"selected_provider": "fake"},
     }
     assert doctor_exit_code(report) == 0
 
