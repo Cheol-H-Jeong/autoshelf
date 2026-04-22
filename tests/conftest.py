@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import json
 import sys
 import types
 from collections import deque
@@ -30,78 +32,88 @@ def sample_corpus(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def mock_anthropic(monkeypatch: pytest.MonkeyPatch):
+def mock_local_openai(monkeypatch: pytest.MonkeyPatch):
     calls: list[dict[str, object]] = []
-    queued_responses: deque[object] = deque()
+    queued_responses: deque[dict[str, object]] = deque()
 
-    class RateLimitError(Exception):
-        pass
+    class MockHTTPResponse(io.BytesIO):
+        def __init__(self, payload: dict[str, object], status: int = 200):
+            super().__init__(json.dumps(payload).encode("utf-8"))
+            self.status = status
+            self.headers = {"Content-Length": str(len(self.getvalue()))}
 
-    class InternalServerError(Exception):
-        pass
+        def __enter__(self):
+            return self
 
-    class APIConnectionError(Exception):
-        pass
+        def __exit__(self, exc_type, exc, tb):
+            return False
 
-    class MockMessages:
-        def create(self, **kwargs):
-            calls.append(kwargs)
-            response = queued_responses.popleft()
-            if isinstance(response, Exception):
-                raise response
-            return response
+    def fake_urlopen(request, timeout=0, *args, **kwargs):
+        url = request.full_url if hasattr(request, "full_url") else str(request)
+        if url.endswith("/v1/models") or url.endswith("/api/tags"):
+            return MockHTTPResponse({"data": [{"id": "qwen3-1.7b-q4"}]})
+        payload = {}
+        if getattr(request, "data", None):
+            payload = json.loads(request.data.decode("utf-8"))
+            calls.append(payload)
+        response = queued_responses.popleft()
+        return MockHTTPResponse(response)
 
-        def count_tokens(self, **kwargs):
-            content = kwargs["messages"][0]["content"]
-            if isinstance(content, list):
-                text = " ".join(str(item.get("text", "")) for item in content)
-            else:
-                text = str(content)
-            return SimpleNamespace(input_tokens=max(1, len(text) // 4))
-
-    class MockAnthropicClient:
-        def __init__(self, api_key: str):
-            self.api_key = api_key
-            self.messages = MockMessages()
-
-        def count_tokens(self, text: str):
-            return max(1, len(text) // 4)
-
-    module = types.SimpleNamespace(
-        Anthropic=MockAnthropicClient,
-        RateLimitError=RateLimitError,
-        InternalServerError=InternalServerError,
-        APIConnectionError=APIConnectionError,
-    )
-    monkeypatch.setitem(sys.modules, "anthropic", module)
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     return SimpleNamespace(
-        module=module,
         calls=calls,
         responses=queued_responses,
-        make_response=_make_anthropic_response,
+        make_response=_make_openai_response,
     )
 
 
-def _make_anthropic_response(
+@pytest.fixture
+def mock_embedded_llama(monkeypatch: pytest.MonkeyPatch):
+    calls: list[dict[str, object]] = []
+
+    class MockLlama:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def create_chat_completion(self, **kwargs):
+            calls.append(kwargs)
+            return _make_openai_response({"Documents": {}}, [])
+
+    module = types.SimpleNamespace(
+        Llama=MockLlama,
+        __version__="0.3.0-test",
+        llama_supports_gpu_offload=lambda: False,
+    )
+    monkeypatch.setitem(sys.modules, "llama_cpp", module)
+    return SimpleNamespace(module=module, calls=calls)
+
+
+def _make_openai_response(
     tree: dict[str, object],
     assignments: list[dict[str, object]],
     unsure_paths: list[str] | None = None,
-    usage: dict[str, int] | None = None,
-):
-    usage_data = {
-        "input_tokens": 120,
-        "output_tokens": 40,
-        "cache_creation_input_tokens": 100,
-        "cache_read_input_tokens": 20,
-    }
-    if usage is not None:
-        usage_data.update(usage)
-    tool_input = {
-        "tree": tree,
-        "assignments": assignments,
-        "unsure_paths": unsure_paths or [],
-    }
-    return SimpleNamespace(
-        content=[SimpleNamespace(type="tool_use", name="emit_plan", input=tool_input)],
-        usage=SimpleNamespace(**usage_data),
+) -> dict[str, object]:
+    arguments = json.dumps(
+        {
+            "tree": tree,
+            "assignments": assignments,
+            "unsure_paths": unsure_paths or [],
+        }
     )
+    return {
+        "choices": [
+            {
+                "message": {
+                    "tool_calls": [
+                        {
+                            "function": {
+                                "name": "emit_plan",
+                                "arguments": arguments,
+                            }
+                        }
+                    ]
+                }
+            }
+        ],
+        "usage": {"prompt_tokens": 120, "completion_tokens": 40},
+    }
