@@ -6,9 +6,9 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPushButton,
     QSlider,
     QTextEdit,
@@ -18,6 +18,8 @@ from PySide6.QtWidgets import (
 
 from autoshelf.config import AppConfig
 from autoshelf.i18n import t
+from autoshelf.llm.model_registry import list_variants
+from autoshelf.llm.system_probe import probe_hardware
 
 
 class SettingsScreen(QWidget):
@@ -26,42 +28,54 @@ class SettingsScreen(QWidget):
     def __init__(self, config: AppConfig | None = None) -> None:
         super().__init__()
         self.config = config or AppConfig.load()
+        self.hardware = probe_hardware()
         layout = QVBoxLayout(self)
         self.title_label = QLabel("")
+        self.privacy_label = QLabel("")
+        self.privacy_label.setWordWrap(True)
+        self.first_run_label = QLabel("")
+        self.first_run_label.setWordWrap(True)
+        self.low_ram_label = QLabel("")
+        self.low_ram_label.setWordWrap(True)
         layout.addWidget(self.title_label)
+        layout.addWidget(self.privacy_label)
+        layout.addWidget(self.first_run_label)
+        layout.addWidget(self.low_ram_label)
+
+        model_box = QGroupBox()
+        model_form = QFormLayout(model_box)
+        self.provider = QComboBox()
+        self.provider.addItems(["auto", "embedded", "local_http", "fake"])
+        self.model_picker = QComboBox()
+        for variant in list_variants():
+            self.model_picker.addItem(variant.model_id)
+        self.model_details = QLabel("")
+        self.model_details.setWordWrap(True)
+        self.current_ram = QLabel("")
+        self.download_button = QPushButton("")
+        model_form.addRow(t("settings.model.title", self.config), self.model_picker)
+        model_form.addRow(t("settings.provider", self.config), self.provider)
+        model_form.addRow(t("settings.system_ram", self.config), self.current_ram)
+        model_form.addRow("", self.model_details)
+        model_form.addRow("", self.download_button)
+        layout.addWidget(model_box)
+
         form = QFormLayout()
-        self.api_key = QLineEdit()
-        self.api_key.setEchoMode(QLineEdit.Password)
-        self.classification_model = QComboBox()
-        self.classification_model.addItems(
-            ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-7"]
-        )
-        self.planning_model = QComboBox()
-        self.planning_model.addItems(["claude-sonnet-4-6", "claude-opus-4-7"])
-        self.review_model = QComboBox()
-        self.review_model.addItems(["claude-sonnet-4-6", "claude-opus-4-7"])
         self.chunk_slider = QSlider(Qt.Horizontal)
-        self.chunk_slider.setRange(4000, 32000)
-        self.chunk_slider.setValue(20000)
+        self.chunk_slider.setRange(2048, 8192)
+        self.chunk_slider.setSingleStep(512)
+        self.chunk_slider.setPageStep(1024)
         self.language = QComboBox()
         self.language.addItems(["auto", "ko", "en"])
         self.theme = QComboBox()
         self.theme.addItems(["system", "light", "dark"])
         self.dry_run = QCheckBox()
         self.exclude_globs = QTextEdit()
-        self.api_key_label = QLabel("")
-        self.classification_model_label = QLabel("")
-        self.planning_model_label = QLabel("")
-        self.review_model_label = QLabel("")
         self.chunk_budget_label = QLabel("")
         self.language_label = QLabel("")
         self.theme_label = QLabel("")
         self.dry_run_label = QLabel("")
         self.exclude_globs_label = QLabel("")
-        form.addRow(self.api_key_label, self.api_key)
-        form.addRow(self.classification_model_label, self.classification_model)
-        form.addRow(self.planning_model_label, self.planning_model)
-        form.addRow(self.review_model_label, self.review_model)
         form.addRow(self.chunk_budget_label, self.chunk_slider)
         form.addRow(self.language_label, self.language)
         form.addRow(self.theme_label, self.theme)
@@ -69,9 +83,7 @@ class SettingsScreen(QWidget):
         form.addRow(self.exclude_globs_label, self.exclude_globs)
         layout.addLayout(form)
         actions = QHBoxLayout()
-        self.test_connection = QPushButton("")
         self.save_button = QPushButton("")
-        actions.addWidget(self.test_connection)
         actions.addWidget(self.save_button)
         layout.addLayout(actions)
         self.status_label = QLabel("")
@@ -80,13 +92,17 @@ class SettingsScreen(QWidget):
         self._load_config()
         self.apply_config(self.config)
         self.save_button.clicked.connect(self.save_config)
+        self.model_picker.currentTextChanged.connect(self._refresh_model_details)
 
     def save_config(self) -> None:
         config = self.config.model_copy(deep=True)
-        config.llm.classification_model = self.classification_model.currentText()
-        config.llm.planning_model = self.planning_model.currentText()
-        config.llm.review_model = self.review_model.currentText()
-        config.max_chunk_tokens = self.chunk_slider.value()
+        config.llm.provider = self.provider.currentText()
+        config.llm.model_id = self.model_picker.currentText()
+        config.llm.planning_model = config.llm.model_id
+        config.llm.classification_model = config.llm.model_id
+        config.llm.review_model = config.llm.model_id
+        config.llm.context_window = self.chunk_slider.value()
+        config.max_chunk_tokens = config.llm.context_window // 4
         config.language_preference = self.language.currentText()
         config.theme = self.theme.currentText()
         config.dry_run_default = self.dry_run.isChecked()
@@ -96,9 +112,11 @@ class SettingsScreen(QWidget):
         config.save()
         self.config = config
         logger.debug(
-            "Saved GUI settings with theme={} language={}",
+            "Saved GUI settings with theme={} language={} provider={} model={}",
             config.theme,
             config.language_preference,
+            config.llm.provider,
+            config.llm.model_id,
         )
         self.apply_config(config)
         self.status_label.setText(
@@ -107,25 +125,51 @@ class SettingsScreen(QWidget):
         self.config_saved.emit(config)
 
     def _load_config(self) -> None:
-        self.classification_model.setCurrentText(self.config.llm.classification_model)
-        self.planning_model.setCurrentText(self.config.llm.planning_model)
-        self.review_model.setCurrentText(self.config.llm.review_model)
-        self.chunk_slider.setValue(self.config.max_chunk_tokens)
+        self.provider.setCurrentText(self.config.llm.provider)
+        self.model_picker.setCurrentText(self.config.llm.model_id)
+        self.chunk_slider.setValue(self.config.llm.context_window)
         self.language.setCurrentText(self.config.language_preference)
         self.theme.setCurrentText(self.config.theme)
         self.dry_run.setChecked(self.config.dry_run_default)
         self.exclude_globs.setPlainText("\n".join(self.config.exclude))
+        self.current_ram.setText(f"{self.hardware.ram_gb} GB")
+        self._refresh_model_details()
 
     def apply_config(self, config: AppConfig) -> None:
         self.title_label.setText(t("settings.title", config))
-        self.api_key_label.setText(t("settings.api_key", config))
-        self.classification_model_label.setText(t("settings.classification_model", config))
-        self.planning_model_label.setText(t("settings.planning_model", config))
-        self.review_model_label.setText(t("settings.review_model", config))
+        self.privacy_label.setText(t("settings.privacy.headline", config))
+        self.first_run_label.setText(t("home.banner.first_run", config))
+        self.low_ram_label.setText(
+            t("settings.low_ram_warning", config, ram_gb=self.hardware.ram_gb)
+            if self.hardware.ram_gb < 8
+            else ""
+        )
         self.chunk_budget_label.setText(t("settings.chunk_budget", config))
         self.language_label.setText(t("settings.language", config))
         self.theme_label.setText(t("settings.theme", config))
         self.dry_run_label.setText(t("settings.dry_run", config))
         self.exclude_globs_label.setText(t("settings.exclude_globs", config))
-        self.test_connection.setText(t("settings.test_connection", config))
+        self.download_button.setText(t("settings.model.download", config))
         self.save_button.setText(t("settings.save", config))
+        self._refresh_model_details()
+
+    def _refresh_model_details(self) -> None:
+        current = next(
+            variant
+            for variant in list_variants()
+            if variant.model_id == self.model_picker.currentText()
+        )
+        self.model_details.setText(
+            " | ".join(
+                [
+                    t("settings.model.download_size", self.config, size=current.download_mb),
+                    t(
+                        "settings.model.recommended_ram",
+                        self.config,
+                        ram=current.recommended_ram_gb,
+                    ),
+                    current.license_name,
+                    current.throughput_hint,
+                ]
+            )
+        )

@@ -138,13 +138,15 @@ def test_settings_screen_saves_config(tmp_path, monkeypatch):
     screen = SettingsScreen(config=AppConfig())
     screen.theme.setCurrentText("dark")
     screen.language.setCurrentText("ko")
-    screen.chunk_slider.setValue(16000)
+    screen.model_picker.setCurrentText("qwen3-0.6b-q4")
+    screen.chunk_slider.setValue(4096)
     screen.exclude_globs.setPlainText(".git\nbuild")
     screen.save_config()
     saved = AppConfig.load(config_path)
     assert saved.theme == "dark"
     assert saved.language_preference == "ko"
-    assert saved.max_chunk_tokens == 16000
+    assert saved.llm.model_id == "qwen3-0.6b-q4"
+    assert saved.max_chunk_tokens == 1024
     assert saved.exclude == [".git", "build"]
     assert "Saved" in screen.status_label.text() or "저장" in screen.status_label.text()
     app.processEvents()
